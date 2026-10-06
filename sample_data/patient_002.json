@@ -1,0 +1,61 @@
+{
+  "patient_id": "patient_002",
+  "name": "Robert Johnson",
+  "date_of_birth": "1952-11-08",
+  "care_team_contact": "(312) 555-0199 — UChicago Medicine HAH Program",
+  "admission_date": "2026-10-01",
+  "primary_diagnosis": "Heart failure",
+  "conditions": [
+    {
+      "name": "Heart failure",
+      "icd_code": "I50.9",
+      "notes": "HFrEF, ejection fraction 35%; admitted for acute decompensation, now stabilized"
+    },
+    {
+      "name": "Hypertension",
+      "icd_code": "I10",
+      "notes": "Chronic, on lisinopril"
+    },
+    {
+      "name": "Type 2 diabetes mellitus",
+      "icd_code": "E11.9",
+      "notes": "On metformin, A1c 7.2% at last visit"
+    }
+  ],
+  "medications": [
+    {
+      "name": "Furosemide",
+      "dose": "40mg",
+      "frequency": "once daily in the morning"
+    },
+    {
+      "name": "Lisinopril",
+      "dose": "5mg",
+      "frequency": "once daily"
+    },
+    {
+      "name": "Carvedilol",
+      "dose": "6.25mg",
+      "frequency": "twice daily with meals"
+    },
+    {
+      "name": "Metformin",
+      "dose": "500mg",
+      "frequency": "twice daily with meals"
+    },
+    {
+      "name": "Aspirin",
+      "dose": "81mg",
+      "frequency": "once daily"
+    }
+  ],
+  "monitoring_parameters": [
+    "daily weight",
+    "blood pressure",
+    "oxygen saturation (SpO2)",
+    "fluid intake and output",
+    "leg swelling"
+  ],
+  "known_allergies": [],
+  "notes": "Lives with wife. Retired teacher. Comfortable with smartphones. Weigh-in every morning before breakfast is critical for this patient — weight gain >2 lbs in a day is a flag."
+}

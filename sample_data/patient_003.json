@@ -1,0 +1,54 @@
+{
+  "patient_id": "patient_003",
+  "name": "Dorothy Williams",
+  "date_of_birth": "1944-07-22",
+  "care_team_contact": "(312) 555-0199 — UChicago Medicine HAH Program",
+  "admission_date": "2026-10-04",
+  "primary_diagnosis": "COPD exacerbation",
+  "conditions": [
+    {
+      "name": "COPD",
+      "icd_code": "J44.1",
+      "notes": "Severe COPD, FEV1 42% predicted; admitted for acute exacerbation, now on oral steroids and antibiotics"
+    },
+    {
+      "name": "Hypertension",
+      "icd_code": "I10",
+      "notes": "Controlled on amlodipine"
+    }
+  ],
+  "medications": [
+    {
+      "name": "Prednisone",
+      "dose": "40mg",
+      "frequency": "once daily for 5 days"
+    },
+    {
+      "name": "Azithromycin",
+      "dose": "250mg",
+      "frequency": "once daily for 5 days"
+    },
+    {
+      "name": "Albuterol inhaler",
+      "dose": "2 puffs",
+      "frequency": "every 4 hours as needed"
+    },
+    {
+      "name": "Tiotropium inhaler",
+      "dose": "18mcg",
+      "frequency": "once daily in the morning"
+    },
+    {
+      "name": "Amlodipine",
+      "dose": "5mg",
+      "frequency": "once daily"
+    }
+  ],
+  "monitoring_parameters": [
+    "oxygen saturation (SpO2)",
+    "respiratory rate",
+    "rescue inhaler use"
+  ],
+  "known_allergies": ["Sulfa drugs"],
+  "notes": "Lives with son. Former smoker, quit 10 years ago. Uses a home pulse oximeter. SpO2 goal is above 88%. Call care team immediately if SpO2 drops below 88% or breathing becomes severely labored."
+}

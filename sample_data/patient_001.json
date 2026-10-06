@@ -1,0 +1,56 @@
+{
+  "patient_id": "patient_001",
+  "name": "Margaret Chen",
+  "date_of_birth": "1948-03-15",
+  "care_team_contact": "(312) 555-0199 — UChicago Medicine HAH Program",
+  "admission_date": "2026-09-28",
+  "primary_diagnosis": "Community-acquired pneumonia",
+  "conditions": [
+    {
+      "name": "Community-acquired pneumonia",
+      "icd_code": "J18.9",
+      "notes": "Moderate severity; on IV antibiotics converted to oral at day 3"
+    },
+    {
+      "name": "Type 2 diabetes mellitus",
+      "icd_code": "E11.9",
+      "notes": "Well-controlled on metformin"
+    },
+    {
+      "name": "Hypertension",
+      "icd_code": "I10",
+      "notes": "On lisinopril 10mg daily"
+    }
+  ],
+  "medications": [
+    {
+      "name": "Amoxicillin-clavulanate",
+      "dose": "875/125 mg",
+      "frequency": "twice daily"
+    },
+    {
+      "name": "Metformin",
+      "dose": "500 mg",
+      "frequency": "twice daily with meals"
+    },
+    {
+      "name": "Lisinopril",
+      "dose": "10 mg",
+      "frequency": "once daily in the morning"
+    },
+    {
+      "name": "Acetaminophen",
+      "dose": "650 mg",
+      "frequency": "every 6 hours as needed for fever or pain"
+    }
+  ],
+  "monitoring_parameters": [
+    "oxygen saturation (SpO2)",
+    "respiratory rate",
+    "temperature",
+    "blood pressure",
+    "blood glucose (fasting and post-meal)"
+  ],
+  "known_allergies": ["penicillin — mild rash (documented 1987, reconfirmed safe with amoxicillin-clav after challenge)"],
+  "notes": "Patient lives alone. Daughter visits daily. Comfortable with technology. Prefers morning check-ins."
+}
