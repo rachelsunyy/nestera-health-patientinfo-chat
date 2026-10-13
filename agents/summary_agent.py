@@ -78,7 +78,7 @@ def _detect_flags(responses: list) -> tuple[list[str], str]:
             for m in re.finditer(rf"\b{re.escape(pattern)}\b", answer_lower):
                 if _is_negated(answer_lower, m.start()):
                     continue
-                flag_msg = f"{r.question.rstrip('?')} — patient said: \"{r.answer}\""
+                flag_msg = f"Patient said \"{r.answer}\" when asked: {r.question}"
                 if flag_msg not in flagged:
                     flagged.append(flag_msg)
                 if _ACTION_PRIORITY[severity] > _ACTION_PRIORITY[action]:

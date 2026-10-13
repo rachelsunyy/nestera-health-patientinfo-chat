@@ -11,7 +11,7 @@ Workflow:
 import json
 import os
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import streamlit as st
@@ -85,7 +85,11 @@ def show_summary(summary) -> None:
     )
     note = re.sub(r"### Recommended Action:[^\n]*\n", "", note)
     st.markdown(note)
-    st.caption(f"Note generated: {summary.generated_at}")
+    try:
+        generated = datetime.fromisoformat(summary.generated_at).strftime("%b %d, %Y at %-I:%M %p")
+    except ValueError:
+        generated = summary.generated_at
+    st.caption(f"Note generated: {generated}")
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────
@@ -193,9 +197,14 @@ else:
             selected_id = st.selectbox("Patient", patient_ids, format_func=patient_label)
         record = db.get_patient(selected_id)
         col1, col2, col3 = st.columns(3)
-        col1.metric("Patient", record.name)
-        col2.metric("Primary Diagnosis", record.primary_diagnosis)
-        col3.metric("Admitted", record.admission_date)
+        # st.metric truncates long values, so use plain text for these
+        for col, label, value in (
+            (col1, "Patient", record.name),
+            (col2, "Primary Diagnosis", record.primary_diagnosis),
+            (col3, "Admitted", record.admission_date),
+        ):
+            col.caption(label)
+            col.markdown(f"#### {value}")
         st.divider()
 
     tab_summary, tab_questions, tab_register = st.tabs(
