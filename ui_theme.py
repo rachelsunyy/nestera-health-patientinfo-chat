@@ -21,7 +21,8 @@ _CSS = """
 }
 
 /* Hide default Streamlit chrome */
-#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] { display: none !important; }
+#MainMenu, footer, [data-testid="stDecoration"],
+[data-testid="stToolbarActions"], [data-testid="stMainMenu"] { display: none !important; }
 header[data-testid="stHeader"] { background: transparent; }
 
 .block-container { max-width: 1080px; padding-top: 2.2rem; padding-bottom: 4rem; }
