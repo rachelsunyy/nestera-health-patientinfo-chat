@@ -167,7 +167,7 @@ class PatientAgent:
             self._save_checkin()
             return (
                 "Thank you so much for completing today's check-in! "
-                "Your care team has been notified and will review your responses. "
+                "Your responses have been saved and your care team will review them. "
                 f"For urgent concerns please call {self.record.care_team_contact}. "
                 "Take care!",
                 True,

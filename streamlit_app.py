@@ -145,8 +145,8 @@ if view == "Patient":
     # Completion state
     if st.session_state.p_done:
         st.success(
-            "✅ **Check-in complete!** Your care team has been notified "
-            "and will review your responses."
+            "✅ **Check-in complete!** Your responses have been saved "
+            "and your care team will review them."
         )
         if st.button("Start a new check-in", type="secondary"):
             st.session_state.p_agent = None
@@ -209,11 +209,14 @@ else:
         else:
             today = date.today().isoformat()
             existing = db.get_summary(selected_id, today)
+            checkin_today = db.get_checkin(selected_id, today)
+            if existing and checkin_today and checkin_today.timestamp > existing.generated_at:
+                existing = None  # check-in was redone after the note was written
 
             if existing:
                 show_summary(existing)
             else:
-                checkin = db.get_checkin(selected_id, today)
+                checkin = checkin_today
                 if checkin:
                     # Check-in exists but summary hasn't been generated yet
                     st.info("Check-in completed. Generating clinical note…")
