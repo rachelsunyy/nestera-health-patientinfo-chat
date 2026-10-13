@@ -10,6 +10,7 @@ Workflow:
 
 import json
 import os
+import re
 from datetime import date
 from pathlib import Path
 
@@ -53,6 +54,14 @@ def get_db():
 db = get_db()
 
 
+def patient_label(patient_id: str) -> str:
+    """Show a patient's name in pickers instead of the raw ID."""
+    try:
+        return db.get_patient(patient_id).name
+    except Exception:
+        return patient_id
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def show_summary(summary) -> None:
@@ -68,7 +77,14 @@ def show_summary(summary) -> None:
         st.error("⚠️ Items requiring clinician attention")
         for item in summary.flagged_items:
             st.markdown(f"- {item}")
-    st.markdown(summary.summary_markdown)
+
+    # The stored note repeats the action and flagged items already shown above
+    note = re.sub(
+        r"### ⚠️ Items Requiring Attention\n.*?(?=\n### )", "",
+        summary.summary_markdown, flags=re.S,
+    )
+    note = re.sub(r"### Recommended Action:[^\n]*\n", "", note)
+    st.markdown(note)
     st.caption(f"Note generated: {summary.generated_at}")
 
 
@@ -92,7 +108,7 @@ if view == "Patient":
         st.stop()
 
     with st.sidebar:
-        selected_id = st.selectbox("Select your name", patient_ids)
+        selected_id = st.selectbox("Select your name", patient_ids, format_func=patient_label)
 
     # Reset when patient changes
     if st.session_state.get("p_patient_id") != selected_id:
@@ -174,7 +190,7 @@ else:
 
     if has_patients:
         with st.sidebar:
-            selected_id = st.selectbox("Patient", patient_ids)
+            selected_id = st.selectbox("Patient", patient_ids, format_func=patient_label)
         record = db.get_patient(selected_id)
         col1, col2, col3 = st.columns(3)
         col1.metric("Patient", record.name)
