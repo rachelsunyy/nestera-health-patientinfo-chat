@@ -4,3 +4,8 @@ fastapi>=0.115.0
 uvicorn>=0.30.0
 streamlit>=1.40.0
 google-cloud-storage>=2.16.0
+rich>=13.0.0            # used by cli.py and main.py
+
+# Optional backends (install only if you use them):
+#   google-cloud-firestore   — USE_FIRESTORE=true in app.py
+#   google-generativeai      — models/gemini_client.py (not used by the current check-in flow)
