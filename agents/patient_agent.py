@@ -137,6 +137,11 @@ class PatientAgent:
         self.responses: list[CheckInResponse] = []
         self._current_q_index = 0
 
+    @property
+    def progress(self) -> tuple[int, int]:
+        """(questions answered, total questions)."""
+        return self._current_q_index, len(self.questions)
+
     def start_session(self) -> str:
         """Load patient record from DB, build question list, return opening message.
         Completely instant — no LLM calls.
@@ -167,7 +172,7 @@ class PatientAgent:
             self._save_checkin()
             return (
                 "Thank you so much for completing today's check-in! "
-                "Your care team has been notified and will review your responses. "
+                "Your responses have been saved and your care team will review them. "
                 f"For urgent concerns please call {self.record.care_team_contact}. "
                 "Take care!",
                 True,

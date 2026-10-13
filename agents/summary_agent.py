@@ -4,13 +4,16 @@ Builds a structured clinical note directly from the patient's actual check-in
 responses. No LLM required — the summary is derived entirely from what the
 patient said, so it is always accurate and never fabricated.
 
-If a Gemini API key is configured, the note is additionally enhanced with
-an AI-written narrative paragraph. If not, the structured note stands on its own.
+Concerns are flagged two ways: keyword matching on free-text answers (with
+negation handling) and numeric threshold checks on reported vital signs
+(see agents/vitals.py).
 """
 
 from __future__ import annotations
+import re
 from datetime import date
 
+from agents.vitals import check_vitals
 from data.models import PatientRecord, DailyCheckIn, ClinicalSummary
 from database.patient_db import PatientDatabase
 
@@ -34,6 +37,8 @@ _CONCERN_PATTERNS = [
     ("skipped", "Schedule visit"),
     ("fell", "Schedule visit"),
     ("fall", "Schedule visit"),
+    ("falls", "Schedule visit"),
+    ("fallen", "Schedule visit"),
     ("very dizzy", "Schedule visit"),
     ("confused", "Schedule visit"),
     ("confusion", "Schedule visit"),
@@ -43,20 +48,53 @@ _CONCERN_PATTERNS = [
 _ACTION_PRIORITY = {"Routine review": 0, "Schedule visit": 1, "Escalate": 2}
 
 
+_NEGATORS = {
+    "no", "not", "never", "none", "nothing", "without", "denies", "denied",
+    "neither", "nor", "haven't", "havent", "hasn't", "hasnt", "isn't", "isnt",
+    "wasn't", "wasnt", "don't", "dont", "doesn't", "doesnt", "didn't", "didnt",
+    "n't",
+}
+_CLAUSE_BREAK = re.compile(r"[,;.!?:\n]|\b(?:but|however|although)\b")
+_NEGATION_WINDOW = 4  # words before the match that can negate it
+
+
+def _is_negated(text: str, match_start: int) -> bool:
+    """True if the matched phrase is negated by a nearby word in the same clause."""
+    clause = _CLAUSE_BREAK.split(text[:match_start])[-1]
+    words = re.findall(r"[a-z']+", clause)[-_NEGATION_WINDOW:]
+    return any(w in _NEGATORS or w.endswith("n't") for w in words)
+
+
 def _detect_flags(responses: list) -> tuple[list[str], str]:
-    """Scan patient answers for concerning patterns. Returns (flagged_items, action)."""
+    """Scan patient answers for concerning patterns. Returns (flagged_items, action).
+
+    Phrases are matched on word boundaries and skipped when negated
+    (e.g. "no falls", "not short of breath", "not worse"). Reported vital signs
+    are also checked against numeric thresholds.
+    """
     flagged: list[str] = []
     action = "Routine review"
 
     for r in responses:
-        answer_lower = r.answer.lower()
+        answer_lower = r.answer.lower().replace("\u2019", "'")
         for pattern, severity in _CONCERN_PATTERNS:
-            if pattern in answer_lower:
-                flag_msg = f"{r.question.rstrip('?')} — patient said: \"{r.answer}\""
+            for m in re.finditer(rf"\b{re.escape(pattern)}\b", answer_lower):
+                if _is_negated(answer_lower, m.start()):
+                    continue
+                flag_msg = f"Patient said \"{r.answer}\" when asked: {r.question}"
                 if flag_msg not in flagged:
                     flagged.append(flag_msg)
                 if _ACTION_PRIORITY[severity] > _ACTION_PRIORITY[action]:
                     action = severity
+                break
+
+        vital = check_vitals(r.question, r.answer)
+        if vital:
+            flag_msg = f"{vital.message} — patient said \"{r.answer}\""
+            if flag_msg not in flagged:
+                flagged.append(flag_msg)
+            if _ACTION_PRIORITY[vital.severity] > _ACTION_PRIORITY[action]:
+                action = vital.severity
 
     return flagged, action
 

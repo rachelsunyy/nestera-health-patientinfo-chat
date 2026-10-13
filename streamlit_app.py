@@ -10,7 +10,8 @@ Workflow:
 
 import json
 import os
-from datetime import date
+import re
+from datetime import date, datetime
 from pathlib import Path
 
 import streamlit as st
@@ -21,7 +22,7 @@ load_dotenv()
 st.set_page_config(
     page_title="Hospital-At-Home",
     page_icon="🏥",
-    layout="wide",
+    layout="centered",
 )
 
 # ── Database ───────────────────────────────────────────────────────────────
@@ -29,6 +30,9 @@ from database.patient_db import MockPatientDatabase, GCSPatientDatabase
 from data.models import PatientRecord, DoctorQuestions
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
+import ui_theme
+
+ui_theme.inject_css()
 
 
 @st.cache_resource
@@ -53,30 +57,46 @@ def get_db():
 db = get_db()
 
 
+def patient_label(patient_id: str) -> str:
+    """Show a patient's name in pickers instead of the raw ID."""
+    try:
+        return db.get_patient(patient_id).name
+    except Exception:
+        return patient_id
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def show_summary(summary) -> None:
-    color = {
-        "Routine review": "green",
-        "Schedule visit": "orange",
-        "Escalate": "red",
-    }.get(summary.recommended_action, "gray")
     st.markdown(
-        f"### Recommended Action: :{color}[**{summary.recommended_action}**]"
+        "**Recommended action** &nbsp; "
+        + ui_theme.chip(summary.recommended_action, ui_theme.action_tone(summary.recommended_action)),
+        unsafe_allow_html=True,
     )
     if summary.flagged_items:
         st.error("⚠️ Items requiring clinician attention")
         for item in summary.flagged_items:
             st.markdown(f"- {item}")
-    st.markdown(summary.summary_markdown)
-    st.caption(f"Note generated: {summary.generated_at}")
+
+    # The stored note repeats the action and flagged items already shown above
+    note = re.sub(
+        r"### ⚠️ Items Requiring Attention\n.*?(?=\n### )", "",
+        summary.summary_markdown, flags=re.S,
+    )
+    note = re.sub(r"### Recommended Action:[^\n]*\n", "", note)
+    st.markdown(note)
+    try:
+        generated = datetime.fromisoformat(summary.generated_at).strftime("%b %d, %Y at %-I:%M %p")
+    except ValueError:
+        generated = summary.generated_at
+    st.caption(f"Note generated: {generated}")
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("🏥 Hospital-At-Home")
+    ui_theme.brand_header()
     st.divider()
-    view = st.radio("I am a …", ["Patient", "Doctor / Nurse"])
+    view = st.radio("View as", ["Patient", "Doctor / Nurse"])
     st.divider()
 
 
@@ -92,7 +112,7 @@ if view == "Patient":
         st.stop()
 
     with st.sidebar:
-        selected_id = st.selectbox("Select your name", patient_ids)
+        selected_id = st.selectbox("Select your name", patient_ids, format_func=patient_label)
 
     # Reset when patient changes
     if st.session_state.get("p_patient_id") != selected_id:
@@ -113,12 +133,15 @@ if view == "Patient":
             st.stop()
 
     record = st.session_state.p_agent.record
-    st.title(f"Daily Check-In — {record.name}")
-    st.caption(
-        f"Today: {date.today().strftime('%B %d, %Y')}  •  "
-        f"Care team: {record.care_team_contact}"
+    ui_theme.hero(
+        f"Daily Check-In — {record.name}",
+        f"{date.today().strftime('%A, %B %d, %Y')}  ·  Care team: {record.care_team_contact}",
     )
-    st.divider()
+    answered, total = st.session_state.p_agent.progress
+    if st.session_state.p_done:
+        answered = total
+    st.progress(answered / total if total else 0.0, text=f"{answered} of {total} questions answered")
+    ui_theme.emergency_notice(record.care_team_contact)
 
     # Render conversation
     for msg in st.session_state.p_messages:
@@ -129,8 +152,8 @@ if view == "Patient":
     # Completion state
     if st.session_state.p_done:
         st.success(
-            "✅ **Check-in complete!** Your care team has been notified "
-            "and will review your responses."
+            "✅ **Check-in complete!** Your responses have been saved "
+            "and your care team will review them."
         )
         if st.button("Start a new check-in", type="secondary"):
             st.session_state.p_agent = None
@@ -168,19 +191,50 @@ if view == "Patient":
 # ══════════════════════════════════════════════════════════════════════════════
 
 else:
-    st.title("Clinician Dashboard")
+    today = date.today().isoformat()
     patient_ids = db.list_patient_ids()
     has_patients = bool(patient_ids)
 
+    ui_theme.hero("Clinician Dashboard", f"{date.today().strftime('%A, %B %d, %Y')}  ·  Today's check-in overview")
+
     if has_patients:
+        rows = []
+        for pid in patient_ids:
+            rec = db.get_patient(pid)
+            done = db.get_checkin(pid, today) is not None
+            summ = db.get_summary(pid, today) if done else None
+            rows.append({
+                "id": pid,
+                "name": rec.name,
+                "diagnosis": rec.primary_diagnosis,
+                "status_html": ui_theme.chip("Completed" if done else "Not started", "green" if done else "gray"),
+                "action_html": (
+                    ui_theme.chip(summ.recommended_action, ui_theme.action_tone(summ.recommended_action))
+                    if summ else '<span style="color:#9AAAB3">—</span>'
+                ),
+                "_done": done,
+                "_attention": bool(summ and summ.recommended_action != "Routine review"),
+            })
+        n_done = sum(r["_done"] for r in rows)
+        n_attn = sum(r["_attention"] for r in rows)
+        ui_theme.kpi_row([
+            ("Patients", len(rows), ""),
+            ("Check-ins complete", f"{n_done} / {len(rows)}", "green" if n_done == len(rows) else ""),
+            ("Need attention", n_attn, "red" if n_attn else "green"),
+        ])
+        ui_theme.roster_table(rows)
+        st.write("")
+
         with st.sidebar:
-            selected_id = st.selectbox("Patient", patient_ids)
+            selected_id = st.selectbox("Patient", patient_ids, format_func=patient_label)
         record = db.get_patient(selected_id)
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Patient", record.name)
-        col2.metric("Primary Diagnosis", record.primary_diagnosis)
-        col3.metric("Admitted", record.admission_date)
-        st.divider()
+        st.subheader(f"Patient detail — {record.name}")
+        ui_theme.detail_cards([
+            ("Patient", record.name),
+            ("Primary diagnosis", record.primary_diagnosis),
+            ("Admitted", record.admission_date),
+        ])
+        st.write("")
 
     tab_summary, tab_questions, tab_register = st.tabs(
         ["📋 Clinical Summary", "❓ Add Questions", "➕ Register Patient"]
@@ -193,11 +247,14 @@ else:
         else:
             today = date.today().isoformat()
             existing = db.get_summary(selected_id, today)
+            checkin_today = db.get_checkin(selected_id, today)
+            if existing and checkin_today and checkin_today.timestamp > existing.generated_at:
+                existing = None  # check-in was redone after the note was written
 
             if existing:
                 show_summary(existing)
             else:
-                checkin = db.get_checkin(selected_id, today)
+                checkin = checkin_today
                 if checkin:
                     # Check-in exists but summary hasn't been generated yet
                     st.info("Check-in completed. Generating clinical note…")
