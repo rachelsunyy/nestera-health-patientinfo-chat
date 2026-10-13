@@ -94,6 +94,13 @@ h1, h2, h3 { color: var(--nh-ink); letter-spacing: -0.01em; }
 }
 [data-testid="stChatMessage"] p { font-size: 1.02rem; line-height: 1.55; }
 
+/* Make the "reopen sidebar" button easy to spot */
+[data-testid="stExpandSidebarButton"] {
+  background: var(--nh-primary) !important; border-radius: 10px; width: 2.4rem; height: 2.4rem;
+  box-shadow: 0 1px 4px rgba(20, 48, 59, 0.25);
+}
+[data-testid="stExpandSidebarButton"] span { color: #fff !important; }
+
 /* Sidebar */
 [data-testid="stSidebar"] { background: var(--nh-surface); border-right: 1px solid var(--nh-line); }
 
