@@ -14,6 +14,7 @@ import re
 from datetime import date
 
 from agents.llm_assist import AIAssist, AIOutcome
+from agents.markers import EMERGENCY_MARKER
 from agents.vitals import check_vitals
 from data.models import PatientRecord, DailyCheckIn, ClinicalSummary
 from database.patient_db import PatientDatabase
@@ -77,6 +78,12 @@ def _detect_flags(responses: list) -> tuple[list[str], str]:
     action = "Routine review"
 
     for r in responses:
+        if r.question == EMERGENCY_MARKER:
+            msg = f'Emergency notice shown to patient after they said: "{r.answer}"'
+            if msg not in flagged:
+                flagged.append(msg)
+            action = "Escalate"
+            continue
         answer_lower = r.answer.lower().replace("\u2019", "'")
         for pattern, severity in _CONCERN_PATTERNS:
             for m in re.finditer(rf"\b{re.escape(pattern)}\b", answer_lower):
@@ -89,7 +96,7 @@ def _detect_flags(responses: list) -> tuple[list[str], str]:
                     action = severity
                 break
 
-        vital = check_vitals(r.question, r.answer)
+        vital = check_vitals(r.question, r.answer, r.topic)
         if vital:
             flag_msg = f"{vital.message} — patient said \"{r.answer}\""
             if flag_msg not in flagged:

@@ -149,6 +149,27 @@ python evals/run_eval.py --ai --triage-model claude-sonnet-5-5   # compare anoth
 
 
 
+### Conversational check-in (patient-facing, optional)
+
+Set `AI_CONVERSATION_ENABLED=true` (on top of the AI settings above) and the patient chat becomes an adaptive conversation (`agents/conversation_agent.py`). Each patient still has a **coverage checklist**, the topics a clinician needs answered, built from their record (conditions, readings, medications, safety, plus any doctor-added questions). The checklist is fixed. How the conversation gets through it is not: one model call per reply (`claude-sonnet-5-5` at low effort by default) lets it
+
+- **choose the order**: e.g. ask for the oxygen reading right after the patient mentions trouble breathing
+- **word each question to flow from what the patient just said**
+- **ask short follow-up questions** when an answer reveals something worth a closer look (a symptom getting worse, something new, an incomplete answer), capped at 2 per topic and 6 per check-in
+- **skip a topic the patient has already answered**, but only when it quotes their exact words and the code verifies the quote (a reading must include the number)
+- ask one clarifying question when an answer is too vague, redirect medical questions to the care team, and record a concerning symptom mentioned out of order
+
+What the model can never change, because it is plain code:
+
+- **A check-in only ends when every checklist topic is covered**, or when an emergency ends it.
+- **Recorded answers are the patient's own words**, never a model paraphrase. Each question/answer is tagged with its topic, so numeric checks (SpO2, BP, glucose...) still apply when a question was reworded. Doctor-written questions are always asked exactly as written.
+- **Emergency and medical-advice responses are fixed text.** The same rules used for triage run *before* the model on every reply; if they (or the model) flag an emergency, the patient sees a fixed message to contact the care team and call 911 if in danger, and the check-in ends and is saved with an emergency marker that always escalates.
+- **The patient is told up front** that they are talking to an automated assistant, not a person or a medical professional.
+
+Anything the model writes for the patient is checked first: one question only, on the topic, short, no advice or reassurance wording, no numbers the patient didn't say. If a check fails, or the model errors or refuses, that turn uses the standard question and a scripted acknowledgment. Replies are untrusted text: instructions inside a reply cannot skip topics or end the check-in. The model sees the scrubbed conversation so far (question/answer pairs), the current reply, and the remaining topics, not the patient's name or other identifiers.
+
+Measure it with `python evals/run_conversation_eval.py` (synthetic cases): **emergencies missed** first, then false alarms, whether it asks follow-ups when warranted and stays quiet on routine answers, and how often its wording is rejected by the safety checks. Treat this as a prototype until clinicians have reviewed the cases, the emergency rules, and what follow-up questions are appropriate.
+
 ### AI assist and patient data
 
 There is no "HIPAA-approved model". What matters is the **agreement and service**, not the model:
@@ -168,7 +189,9 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 ├── .streamlit/config.toml    # Streamlit theme
 ├── agents/
 │   ├── patient_agent.py      # Builds personalized questions, runs the check-in
-│   ├── llm_assist.py         # Optional Claude triage / overview / review tiers
+│   ├── llm_assist.py         # Optional Claude triage / overview / review / conversation tiers
+│   ├── conversation_agent.py # Optional conversational check-in (fixed questions, model-assisted dialogue)
+│   ├── markers.py            # Fixed labels for emergency / volunteered entries
 │   ├── deid.py               # Scrubs identifiers before text goes to a model
 │   ├── ai_audit.py           # Audit log of model calls (no content)
 │   ├── summary_agent.py      # Flags concerns and generates the clinical note

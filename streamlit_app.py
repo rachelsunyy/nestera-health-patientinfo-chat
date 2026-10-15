@@ -28,6 +28,8 @@ st.set_page_config(
 # ── Database ───────────────────────────────────────────────────────────────
 from database.patient_db import MockPatientDatabase, GCSPatientDatabase
 from data.models import PatientRecord, DoctorQuestions
+import config
+from agents.conversation_agent import ConversationalPatientAgent
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
 import ui_theme
@@ -126,7 +128,8 @@ if view == "Patient":
     # Start session instantly (no LLM, no spinner)
     if st.session_state.p_agent is None:
         try:
-            agent = PatientAgent(selected_id, db)
+            agent_class = ConversationalPatientAgent if config.AI_CONVERSATION_ENABLED else PatientAgent
+            agent = agent_class(selected_id, db)
             opening = agent.start_session()
             st.session_state.p_agent = agent
             st.session_state.p_messages = [{"role": "assistant", "content": opening}]
@@ -153,10 +156,13 @@ if view == "Patient":
 
     # Completion state
     if st.session_state.p_done:
-        st.success(
-            "✅ **Check-in complete!** Your responses have been saved "
-            "and your care team will review them."
-        )
+        if getattr(st.session_state.p_agent, "ended_early", False):
+            st.warning("Your check-in was ended early so you can get help. What you shared has been saved for your care team.")
+        else:
+            st.success(
+                "✅ **Check-in complete!** Your responses have been saved "
+                "and your care team will review them."
+            )
         if st.button("Start a new check-in", type="secondary"):
             st.session_state.p_agent = None
             st.session_state.p_messages = []
