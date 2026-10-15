@@ -62,6 +62,12 @@ CARE_TEAM_EMAIL = os.getenv("CARE_TEAM_EMAIL", "careteam@example.com")
 # has a signed BAA covering the exact service you use, and has confirmed that
 # the models below are available under it. See README -> "AI assist and patient data".
 AI_ASSIST_ENABLED = os.getenv("AI_ASSIST_ENABLED", "false").lower() == "true"
+# Enabling AI requires an explicit data-handling decision (there is no default):
+#   AI_DATA_MODE=synthetic   -> only fake/demo patients are in this deployment
+#   AI_DATA_MODE=phi         -> real patient data; ALSO requires AI_BAA_CONFIRMED=true,
+#                               meaning a BAA covering the chosen route is signed and on file.
+AI_DATA_MODE = os.getenv("AI_DATA_MODE", "").lower()
+AI_BAA_CONFIRMED = os.getenv("AI_BAA_CONFIRMED", "false").lower() == "true"
 AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")        # "anthropic" or "vertex"
 GCP_PROJECT = os.getenv("GCP_PROJECT")                     # vertex only
 GCP_REGION = os.getenv("GCP_REGION", "global")             # vertex only

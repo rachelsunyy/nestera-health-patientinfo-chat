@@ -189,6 +189,7 @@ class SummaryAgent:
         ai = self.ai.assist(
             [c.name for c in record.conditions] or [record.primary_diagnosis],
             checkin.responses, flagged, action,
+            patient_id=self.patient_id, known_names=(record.name,),
         )
         flagged = flagged + ai.flags
         if _ACTION_PRIORITY[ai.action] > _ACTION_PRIORITY[action]:
