@@ -149,6 +149,21 @@ python evals/run_eval.py --ai --triage-model claude-sonnet-5-5   # compare anoth
 
 
 
+### Conversational check-in (patient-facing, optional)
+
+Set `AI_CONVERSATION_ENABLED=true` (on top of the AI settings above) and the patient chat becomes a conversation (`agents/conversation_agent.py`). The model is deliberately kept on a short leash. These stay fixed, in code the model can't influence:
+
+- **The questions, their order, and when the check-in is complete.** The model never writes a question.
+- **The recorded answers.** They are always the patient's own words, never a model paraphrase.
+- **Emergency and medical-advice responses.** These are fixed text. The same rules used for triage run *before* the model on every reply; if they (or the model) flag an emergency, the patient sees a fixed message to contact the care team and call 911 if in danger, and the check-in ends and is saved with an emergency marker that always escalates.
+- **The patient is told up front** that they are talking to an automated assistant, not a person or a medical professional.
+
+What the model adds, with one low-reasoning call per reply (`claude-haiku-5-5` by default): it understands whether a reply is an answer, unclear, a question for the care team, a possible emergency, or a decline; writes a short acknowledgment; asks at most one clarifying question per question; redirects medical questions to the care team; and records a concerning symptom mentioned out of order.
+
+Everything the model writes for the patient is checked first (length, no advice or reassurance wording, no numbers the patient didn't say, no extra questions). If a check fails, or the model errors or refuses, that turn falls back to the plain scripted behaviour. Replies are treated as untrusted text: instructions inside a reply cannot skip questions or end the check-in. Only the current question and the scrubbed reply are sent to the model, not the whole conversation.
+
+Measure it with `python evals/run_conversation_eval.py` (synthetic cases; reports **emergencies missed** first, then false alarms). Until clinicians have reviewed the cases and the thresholds, treat this as a prototype.
+
 ### AI assist and patient data
 
 There is no "HIPAA-approved model". What matters is the **agreement and service**, not the model:
@@ -168,7 +183,9 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 ├── .streamlit/config.toml    # Streamlit theme
 ├── agents/
 │   ├── patient_agent.py      # Builds personalized questions, runs the check-in
-│   ├── llm_assist.py         # Optional Claude triage / overview / review tiers
+│   ├── llm_assist.py         # Optional Claude triage / overview / review / conversation tiers
+│   ├── conversation_agent.py # Optional conversational check-in (fixed questions, model-assisted dialogue)
+│   ├── markers.py            # Fixed labels for emergency / volunteered entries
 │   ├── deid.py               # Scrubs identifiers before text goes to a model
 │   ├── ai_audit.py           # Audit log of model calls (no content)
 │   ├── summary_agent.py      # Flags concerns and generates the clinical note

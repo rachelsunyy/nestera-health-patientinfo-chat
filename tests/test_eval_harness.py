@@ -34,3 +34,13 @@ def test_ai_can_fix_a_case_the_rules_miss():
     _, final = predict(case, AIAssist(client))
     assert final == "Escalate"
     assert "overview" not in [t for t, _ in client.messages.calls]   # evals skip the text-only tier
+
+
+def test_conversation_dataset_is_well_formed():
+    import json
+    from pathlib import Path
+    path = Path(__file__).parent.parent / "evals" / "conversation_cases.jsonl"
+    cases = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    intents = {"answer", "unclear", "patient_question", "emergency", "decline"}
+    assert len(cases) >= 20 and {c["expected_intent"] for c in cases} == intents
+    assert all(c["question"] and c["reply"] and c["conditions"] for c in cases)

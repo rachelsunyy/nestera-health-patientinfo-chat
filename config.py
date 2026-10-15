@@ -76,3 +76,9 @@ GCP_REGION = os.getenv("GCP_REGION", "global")             # vertex only
 AI_MODEL_TRIAGE = os.getenv("AI_MODEL_TRIAGE", "claude-haiku-5-5")    # every check-in: cheap, fast, low reasoning
 AI_MODEL_SUMMARY = os.getenv("AI_MODEL_SUMMARY", "claude-sonnet-5-5") # every check-in: clinician-facing overview
 AI_MODEL_REVIEW = os.getenv("AI_MODEL_REVIEW", "claude-opus-5-5")     # only escalations / disagreements: deepest reasoning
+
+# Patient-facing conversational check-in (needs AI assist enabled and configured as above).
+# The questions, their order, and the recorded answers stay deterministic; the model only
+# interprets replies, acknowledges them, and asks at most one clarifying question.
+AI_CONVERSATION_ENABLED = os.getenv("AI_CONVERSATION_ENABLED", "false").lower() == "true"
+AI_MODEL_CONVERSATION = os.getenv("AI_MODEL_CONVERSATION", "claude-haiku-5-5")  # low reasoning, latency-sensitive
