@@ -145,10 +145,26 @@ _RULES = [
 ]
 
 
-def check_vitals(question: str, answer: str) -> VitalFlag | None:
-    """Return a flag if the answer to a vital-sign question is out of range."""
+_TOPIC_RULES = {
+    "spo2": _check_spo2,
+    "temperature": _check_temperature,
+    "blood_pressure": _check_bp,
+    "blood_sugar_reading": _check_glucose,
+    "resp_rate": _check_resp_rate,
+}
+
+
+def check_vitals(question: str, answer: str, topic: str = "") -> VitalFlag | None:
+    """Return a flag if the answer to a vital-sign question is out of range.
+
+    `topic` (set by the conversational check-in) is authoritative when present, because
+    the question text may have been reworded. Otherwise the question wording decides.
+    """
+    a = answer.lower().replace("\u00b0", " ")
+    if topic and topic != "followup":
+        checker = _TOPIC_RULES.get(topic)
+        return checker(a) if checker else None
     q = question.lower()
-    a = answer.lower().replace("°", " ")
     for keywords, checker in _RULES:
         if any(k in q for k in keywords):
             return checker(a)

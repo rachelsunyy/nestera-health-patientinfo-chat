@@ -151,18 +151,24 @@ python evals/run_eval.py --ai --triage-model claude-sonnet-5-5   # compare anoth
 
 ### Conversational check-in (patient-facing, optional)
 
-Set `AI_CONVERSATION_ENABLED=true` (on top of the AI settings above) and the patient chat becomes a conversation (`agents/conversation_agent.py`). The model is deliberately kept on a short leash. These stay fixed, in code the model can't influence:
+Set `AI_CONVERSATION_ENABLED=true` (on top of the AI settings above) and the patient chat becomes an adaptive conversation (`agents/conversation_agent.py`). Each patient still has a **coverage checklist**, the topics a clinician needs answered, built from their record (conditions, readings, medications, safety, plus any doctor-added questions). The checklist is fixed. How the conversation gets through it is not: one model call per reply (`claude-sonnet-5-5` at low effort by default) lets it
 
-- **The questions, their order, and when the check-in is complete.** The model never writes a question.
-- **The recorded answers.** They are always the patient's own words, never a model paraphrase.
-- **Emergency and medical-advice responses.** These are fixed text. The same rules used for triage run *before* the model on every reply; if they (or the model) flag an emergency, the patient sees a fixed message to contact the care team and call 911 if in danger, and the check-in ends and is saved with an emergency marker that always escalates.
+- **choose the order**: e.g. ask for the oxygen reading right after the patient mentions trouble breathing
+- **word each question to flow from what the patient just said**
+- **ask short follow-up questions** when an answer reveals something worth a closer look (a symptom getting worse, something new, an incomplete answer), capped at 2 per topic and 6 per check-in
+- **skip a topic the patient has already answered**, but only when it quotes their exact words and the code verifies the quote (a reading must include the number)
+- ask one clarifying question when an answer is too vague, redirect medical questions to the care team, and record a concerning symptom mentioned out of order
+
+What the model can never change, because it is plain code:
+
+- **A check-in only ends when every checklist topic is covered**, or when an emergency ends it.
+- **Recorded answers are the patient's own words**, never a model paraphrase. Each question/answer is tagged with its topic, so numeric checks (SpO2, BP, glucose...) still apply when a question was reworded. Doctor-written questions are always asked exactly as written.
+- **Emergency and medical-advice responses are fixed text.** The same rules used for triage run *before* the model on every reply; if they (or the model) flag an emergency, the patient sees a fixed message to contact the care team and call 911 if in danger, and the check-in ends and is saved with an emergency marker that always escalates.
 - **The patient is told up front** that they are talking to an automated assistant, not a person or a medical professional.
 
-What the model adds, with one low-reasoning call per reply (`claude-haiku-5-5` by default): it understands whether a reply is an answer, unclear, a question for the care team, a possible emergency, or a decline; writes a short acknowledgment; asks at most one clarifying question per question; redirects medical questions to the care team; and records a concerning symptom mentioned out of order.
+Anything the model writes for the patient is checked first: one question only, on the topic, short, no advice or reassurance wording, no numbers the patient didn't say. If a check fails, or the model errors or refuses, that turn uses the standard question and a scripted acknowledgment. Replies are untrusted text: instructions inside a reply cannot skip topics or end the check-in. The model sees the scrubbed conversation so far (question/answer pairs), the current reply, and the remaining topics, not the patient's name or other identifiers.
 
-Everything the model writes for the patient is checked first (length, no advice or reassurance wording, no numbers the patient didn't say, no extra questions). If a check fails, or the model errors or refuses, that turn falls back to the plain scripted behaviour. Replies are treated as untrusted text: instructions inside a reply cannot skip questions or end the check-in. Only the current question and the scrubbed reply are sent to the model, not the whole conversation.
-
-Measure it with `python evals/run_conversation_eval.py` (synthetic cases; reports **emergencies missed** first, then false alarms). Until clinicians have reviewed the cases and the thresholds, treat this as a prototype.
+Measure it with `python evals/run_conversation_eval.py` (synthetic cases): **emergencies missed** first, then false alarms, whether it asks follow-ups when warranted and stays quiet on routine answers, and how often its wording is rejected by the safety checks. Treat this as a prototype until clinicians have reviewed the cases, the emergency rules, and what follow-up questions are appropriate.
 
 ### AI assist and patient data
 

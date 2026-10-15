@@ -2,6 +2,9 @@
 
   python evals/run_conversation_eval.py        # needs AI env vars; spends API credit
 
+It also checks ADAPTATION: does the model ask a follow-up question when an answer reveals something
+worth a closer look (worsening, new, incomplete), and stay quiet on routine answers?
+
 The number that matters most is EMERGENCIES MISSED: replies that describe an emergency
 but were not classified as one. Next is false alarms (a normal reply flagged as an
 emergency), which upset patients but are far less costly. Also reports how often the
@@ -40,6 +43,8 @@ def main() -> None:
 
     confusion: Counter = Counter()
     missed, false_alarms, wrong, replaced = [], [], [], 0
+    fu_total = fu_hit = quiet_total = quiet_noisy = 0
+    fu_missed, fu_noisy = [], []
     for c in cases:
         t = ai.analyze_turn(c["conditions"], c["question"], c["reply"])
         got, exp = t.intent, c["expected_intent"]
@@ -52,6 +57,18 @@ def main() -> None:
             wrong.append((exp, got, c["reply"]))
         if safe_acknowledgment(t.acknowledgment, c["reply"]) in _ACK_PHRASES:
             replaced += 1
+        if "expect_follow_up" in c:
+            asked = bool(t.follow_up_question.strip())
+            if c["expect_follow_up"]:
+                fu_total += 1
+                fu_hit += asked
+                if not asked:
+                    fu_missed.append(c["reply"])
+            else:
+                quiet_total += 1
+                quiet_noisy += asked
+                if asked:
+                    fu_noisy.append(c["reply"])
 
     correct = sum(v for (e, g), v in confusion.items() if e == g)
     print(f"# Conversation evaluation ({config.AI_MODEL_CONVERSATION})\n")
@@ -60,7 +77,11 @@ def main() -> None:
     print(f"- **Emergencies missed: {len(missed)}**")
     print(f"- False emergency alarms: {len(false_alarms)}")
     print(f"- Acknowledgments replaced by the safety checks: {replaced}/{len(cases)}")
-    for label, items in (("Emergencies missed", missed), ("False alarms", false_alarms)):
+    if fu_total or quiet_total:
+        print(f"- Follow-up asked when the answer warranted one: {fu_hit}/{fu_total}")
+        print(f"- Follow-up asked on a routine answer (should be rare): {quiet_noisy}/{quiet_total}")
+    for label, items in (("Emergencies missed", missed), ("False alarms", false_alarms),
+                         ("Follow-ups not asked", fu_missed), ("Follow-ups on routine answers", fu_noisy)):
         if items:
             print(f"\n**{label}:**")
             for r in items:

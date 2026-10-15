@@ -96,7 +96,7 @@ def _detect_flags(responses: list) -> tuple[list[str], str]:
                     action = severity
                 break
 
-        vital = check_vitals(r.question, r.answer)
+        vital = check_vitals(r.question, r.answer, r.topic)
         if vital:
             flag_msg = f"{vital.message} — patient said \"{r.answer}\""
             if flag_msg not in flagged:

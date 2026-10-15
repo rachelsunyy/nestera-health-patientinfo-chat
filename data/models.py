@@ -33,8 +33,9 @@ class PatientRecord(BaseModel):
 
 
 class CheckInResponse(BaseModel):
-    question: str
-    answer: str
+    question: str            # the question text actually shown to the patient
+    answer: str              # the patient's own words
+    topic: str = ""          # what the question was about (e.g. "spo2"); lets checks work on reworded questions
 
 
 class DoctorQuestions(BaseModel):

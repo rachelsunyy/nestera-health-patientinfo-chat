@@ -42,5 +42,5 @@ def test_conversation_dataset_is_well_formed():
     path = Path(__file__).parent.parent / "evals" / "conversation_cases.jsonl"
     cases = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     intents = {"answer", "unclear", "patient_question", "emergency", "decline"}
-    assert len(cases) >= 20 and {c["expected_intent"] for c in cases} == intents
+    assert len(cases) >= 30 and {c["expected_intent"] for c in cases} == intents
     assert all(c["question"] and c["reply"] and c["conditions"] for c in cases)
