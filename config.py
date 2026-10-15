@@ -53,3 +53,20 @@ SAFE_REDIRECT_MESSAGE = (
 
 # ── Care-team notification (stub — replace with real email/webhook) ─────────
 CARE_TEAM_EMAIL = os.getenv("CARE_TEAM_EMAIL", "careteam@example.com")
+
+# ── Optional AI assist (Anthropic Claude) ──────────────────────────────────
+# OFF by default. When on, the deterministic rules still run first and set a
+# floor: AI can raise a recommended action or add notes, never lower it.
+#
+# PHI WARNING: only enable this with real patient data after your organization
+# has a signed BAA covering the exact service you use, and has confirmed that
+# the models below are available under it. See README -> "AI assist and patient data".
+AI_ASSIST_ENABLED = os.getenv("AI_ASSIST_ENABLED", "false").lower() == "true"
+AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic")        # "anthropic" or "vertex"
+GCP_PROJECT = os.getenv("GCP_PROJECT")                     # vertex only
+GCP_REGION = os.getenv("GCP_REGION", "global")             # vertex only
+
+# Models stratified by reasoning requirement (override with env vars)
+AI_MODEL_TRIAGE = os.getenv("AI_MODEL_TRIAGE", "claude-haiku-5-5")    # every check-in: cheap, fast, low reasoning
+AI_MODEL_SUMMARY = os.getenv("AI_MODEL_SUMMARY", "claude-sonnet-5-5") # every check-in: clinician-facing overview
+AI_MODEL_REVIEW = os.getenv("AI_MODEL_REVIEW", "claude-opus-5-5")     # only escalations / disagreements: deepest reasoning
