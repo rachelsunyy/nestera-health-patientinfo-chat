@@ -130,7 +130,24 @@ Models are stratified by how much reasoning each job needs (override with env va
 | Summary | Short, grounded overview for the clinician | every check-in | `claude-sonnet-5-5` | medium |
 | Review | Second look and rationale | only when the action is *Escalate* or AI raised it | `claude-opus-5-5` | high |
 
-Enable it by setting `AI_ASSIST_ENABLED=true` plus `ANTHROPIC_API_KEY` (or `AI_PROVIDER=vertex`, `GCP_PROJECT`, `GCP_REGION` to use Claude through Google Cloud). Code is in `agents/llm_assist.py`; tests use a fake client, so no key is needed to run them. Only condition names and the question/answer text are sent: not the patient's name, date of birth, contact details or ID (though a patient could still type identifying details into a free-text answer).
+Enable it by setting `AI_ASSIST_ENABLED=true`, an explicit `AI_DATA_MODE` (`synthetic` for demo patients; `phi` for real data, which also requires `AI_BAA_CONFIRMED=true`), and credentials: `ANTHROPIC_API_KEY`, or `AI_PROVIDER=vertex` with `GCP_PROJECT` and `GCP_REGION` to use Claude through Google Cloud. With no `AI_DATA_MODE` set, AI stays off. Code is in `agents/llm_assist.py`; tests use a fake client, so no key is needed to run them.
+
+Data handling built into every model call:
+- Only condition names and the question/answer text are sent, never the patient's name, date of birth, contact details or ID.
+- Text is scrubbed first (`agents/deid.py`): phone numbers, emails, dates, addresses, ID numbers, titles like "Dr. X", and the patient's own name are replaced with tags. Clinical values (BP, SpO2, glucose, temperature) are kept. This is a best-effort safety net, not a guarantee: names the app doesn't know about can slip through, so use a managed de-identification service (e.g. Google Sensitive Data Protection) before real patient data.
+- Every call is recorded in `patient_data/ai_audit.jsonl` (`agents/ai_audit.py`): time, tier, model, provider, data mode, latency, token counts and outcome (ok, refused, error), plus a one-way hash of the patient. Request and response content is never logged.
+
+### Measuring model quality
+
+```bash
+python evals/run_eval.py                    # rules only: free, no key needed
+python evals/run_eval.py --ai               # also run the AI tiers (spends API credit)
+python evals/run_eval.py --ai --triage-model claude-sonnet-5-5   # compare another triage model
+```
+
+`evals/dataset.jsonl` holds 37 synthetic check-ins with expected actions, including informal phrasings the keyword rules miss and prompt-injection attempts. The report counts **under-triage** (recommending less than needed) separately from over-triage, because missing a sick patient is the costlier error. **The labels were written without clinician input and the cases were designed to include the rules' known gaps, so the numbers are a development aid, not clinical evidence.** Have clinicians review and extend the dataset before relying on it.
+
+
 
 ### AI assist and patient data
 
@@ -152,6 +169,8 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 ├── agents/
 │   ├── patient_agent.py      # Builds personalized questions, runs the check-in
 │   ├── llm_assist.py         # Optional Claude triage / overview / review tiers
+│   ├── deid.py               # Scrubs identifiers before text goes to a model
+│   ├── ai_audit.py           # Audit log of model calls (no content)
 │   ├── summary_agent.py      # Flags concerns and generates the clinical note
 │   └── vitals.py             # Numeric vital-sign thresholds
 ├── database/
@@ -161,6 +180,7 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 │   └── store.py              # Legacy JSON store, used only by main.py
 ├── sample_data/              # Demo patient JSON files
 ├── tests/                    # pytest suite
+├── evals/                    # Labeled synthetic check-ins + triage evaluation runner
 ├── app.py                    # FastAPI REST API (alternative to the Streamlit UI)
 ├── cli.py                    # Terminal check-in (uses the same database layer as the app)
 ├── main.py                   # Older CLI built on data/store.py

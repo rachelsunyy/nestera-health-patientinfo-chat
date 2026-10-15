@@ -17,17 +17,24 @@ Safety rules baked in:
   * If AI is disabled, unconfigured, errors out, or refuses, the check-in still
     gets its normal rules-based summary.
   * Minimum necessary data: condition names and the question/answer text are
-    sent. Name, date of birth, contact details and patient ID are not.
+    sent, scrubbed of identifiers (agents/deid.py). Name, date of birth, contact
+    details and patient ID are never included.
+  * Enabling requires an explicit AI_DATA_MODE (and, for real patient data, a
+    confirmed BAA). Every model call is written to an audit log (agents/ai_audit.py)
+    without its content.
 """
 
 from __future__ import annotations
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import BaseModel
 
 import config
+from agents import ai_audit
+from agents.deid import make_scrubber
 from agents.vitals import ESCALATE, SCHEDULE
 
 log = logging.getLogger(__name__)
@@ -89,6 +96,12 @@ def build_client():
     """Return an Anthropic client for the configured provider, or None if AI assist is off/unconfigured."""
     if not config.AI_ASSIST_ENABLED:
         return None
+    if config.AI_DATA_MODE not in ("synthetic", "phi"):
+        log.warning("AI assist disabled: set AI_DATA_MODE=synthetic or AI_DATA_MODE=phi")
+        return None
+    if config.AI_DATA_MODE == "phi" and not config.AI_BAA_CONFIRMED:
+        log.warning("AI assist disabled: AI_DATA_MODE=phi requires AI_BAA_CONFIRMED=true (signed BAA on file)")
+        return None
     import anthropic
 
     if config.AI_PROVIDER == "vertex":
@@ -103,8 +116,18 @@ def build_client():
         return None
 
 
-def _qa_block(responses: list) -> str:
-    return "\n".join(f"{i}. Q: {r.question}\n   A: {r.answer}" for i, r in enumerate(responses, 1))
+def _identity(text: str) -> str:
+    return text
+
+
+def _qa_block(responses: list, scrub=_identity) -> str:
+    return "\n".join(
+        f"{i}. Q: {scrub(r.question)}\n   A: {scrub(r.answer)}" for i, r in enumerate(responses, 1)
+    )
+
+
+def _flag_block(flags: list[str], scrub=_identity) -> str:
+    return "\n".join(f"- {scrub(f)}" for f in flags) or "None"
 
 
 def _text(response) -> str:
@@ -114,71 +137,95 @@ def _text(response) -> str:
 class AIAssist:
     def __init__(self, client=None) -> None:
         self.client = client if client is not None else build_client()
+        self._scrub = _identity     # set per check-in by assist()
+        self._patient = ""
 
     @property
     def enabled(self) -> bool:
         return self.client is not None
 
+    def _call(self, tier: str, model: str, request):
+        """Run one model call, recording an audit entry (never the content)."""
+        start = time.monotonic()
+        try:
+            response = request()
+        except Exception as e:
+            ai_audit.record(tier=tier, model=model, outcome="error", patient=self._patient,
+                            latency_ms=int((time.monotonic() - start) * 1000), error=type(e).__name__)
+            raise
+        refused = getattr(response, "stop_reason", None) == "refusal"
+        ai_audit.record(tier=tier, model=model, outcome="refused" if refused else "ok", patient=self._patient,
+                        latency_ms=int((time.monotonic() - start) * 1000),
+                        usage=getattr(response, "usage", None), stop_reason=getattr(response, "stop_reason", None))
+        return response
+
     # ── Tier 1: triage ────────────────────────────────────────────────────
     def triage(self, conditions: list[str], responses: list) -> list[AnswerTriage]:
-        response = self.client.messages.parse(
+        response = self._call("triage", config.AI_MODEL_TRIAGE, lambda: self.client.messages.parse(
             model=config.AI_MODEL_TRIAGE,
             max_tokens=4096,
             output_config={"effort": "low"},
             system=_TRIAGE_SYSTEM,
             messages=[{"role": "user", "content": (
                 f"Conditions: {', '.join(conditions) or 'not documented'}\n\n"
-                f"Check-in answers:\n{_qa_block(responses)}"
+                f"Check-in answers:\n{_qa_block(responses, self._scrub)}"
             )}],
             output_format=TriageResult,
-        )
+        ))
         if response.stop_reason == "refusal" or response.parsed_output is None:
             raise RuntimeError(f"triage returned no result (stop_reason={response.stop_reason})")
         return [t for t in response.parsed_output.items if 1 <= t.index <= len(responses)]
 
     # ── Tier 2: overview ──────────────────────────────────────────────────
     def overview(self, conditions: list[str], responses: list, flags: list[str]) -> str:
-        flag_text = "\n".join(f"- {f}" for f in flags) or "None"
-        response = self.client.messages.create(
+        response = self._call("overview", config.AI_MODEL_SUMMARY, lambda: self.client.messages.create(
             model=config.AI_MODEL_SUMMARY,
             max_tokens=4096,
             output_config={"effort": "medium"},
             system=_SUMMARY_SYSTEM,
             messages=[{"role": "user", "content": (
                 f"Conditions: {', '.join(conditions) or 'not documented'}\n\n"
-                f"Check-in answers:\n{_qa_block(responses)}\n\nFlags already raised:\n{flag_text}"
+                f"Check-in answers:\n{_qa_block(responses, self._scrub)}\n\n"
+                f"Flags already raised:\n{_flag_block(flags, self._scrub)}"
             )}],
-        )
+        ))
         if response.stop_reason == "refusal":
             raise RuntimeError("overview was refused")
         return _text(response)
 
     # ── Tier 3: second review ─────────────────────────────────────────────
     def review(self, conditions: list[str], responses: list, flags: list[str], action: str) -> ReviewResult:
-        flag_text = "\n".join(f"- {f}" for f in flags) or "None"
-        response = self.client.messages.parse(
+        response = self._call("review", config.AI_MODEL_REVIEW, lambda: self.client.messages.parse(
             model=config.AI_MODEL_REVIEW,
             max_tokens=8000,
             output_config={"effort": "high"},
             system=_REVIEW_SYSTEM,
             messages=[{"role": "user", "content": (
                 f"Conditions: {', '.join(conditions) or 'not documented'}\n\n"
-                f"Check-in answers:\n{_qa_block(responses)}\n\n"
-                f"Flags raised so far:\n{flag_text}\n\nCurrent recommended action: {action}"
+                f"Check-in answers:\n{_qa_block(responses, self._scrub)}\n\n"
+                f"Flags raised so far:\n{_flag_block(flags, self._scrub)}\n\n"
+                f"Current recommended action: {action}"
             )}],
             output_format=ReviewResult,
-        )
+        ))
         if response.stop_reason == "refusal" or response.parsed_output is None:
             raise RuntimeError(f"review returned no result (stop_reason={response.stop_reason})")
         return response.parsed_output
 
     # ── Orchestration ─────────────────────────────────────────────────────
-    def assist(self, conditions: list[str], responses: list, rule_flags: list[str], rule_action: str) -> AIOutcome:
-        """Run the tiers on top of the rules result. Each tier fails independently and safely."""
+    def assist(self, conditions: list[str], responses: list, rule_flags: list[str], rule_action: str,
+               patient_id: str = "", known_names: tuple[str, ...] = (),
+               with_overview: bool = True) -> AIOutcome:
+        """Run the tiers on top of the rules result. Each tier fails independently and safely.
+
+        `known_names` (e.g. the patient's name) are removed from everything sent to the model.
+        """
         out = AIOutcome(action=rule_action)
         if not self.enabled:
             return out
 
+        self._scrub = make_scrubber(known_names)
+        self._patient = ai_audit.patient_ref(patient_id) if patient_id else ""
         all_flags = list(rule_flags)
 
         try:
@@ -209,10 +256,12 @@ class AIAssist:
             except Exception:
                 log.warning("AI review failed; continuing without it", exc_info=True)
 
-        try:
-            out.overview = self.overview(conditions, responses, all_flags)
-            out.models.append(config.AI_MODEL_SUMMARY)
-        except Exception:
-            log.warning("AI overview failed; continuing without it", exc_info=True)
+        if with_overview:
+            try:
+                out.overview = self.overview(conditions, responses, all_flags)
+                out.models.append(config.AI_MODEL_SUMMARY)
+            except Exception:
+                log.warning("AI overview failed; continuing without it", exc_info=True)
 
+        self._scrub, self._patient = _identity, ""
         return out
