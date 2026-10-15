@@ -118,6 +118,30 @@ The chatbot generates more specific questions when `conditions`, `medications`, 
 
 > The thresholds in `agents/vitals.py` are general-purpose **demo values**. They must be reviewed by the clinical team before any real use and ideally made patient-specific (for example, a COPD patient's normal SpO2 is lower).
 
+## Optional AI assist (Anthropic Claude)
+
+Off by default. The deterministic rules above always run first and set a floor: **AI can raise a recommended action or add notes, but never lower it**, and its output is shown to clinicians only, never to patients. If AI is off, misconfigured, errors, or refuses, the check-in still gets its normal rules-based summary.
+
+Models are stratified by how much reasoning each job needs (override with env vars, see `.env.example`):
+
+| Tier | Job | Runs | Default model | Effort |
+|---|---|---|---|---|
+| Triage | Rate each free-text answer none / minor / moderate / urgent | every check-in | `claude-haiku-5-5` | low |
+| Summary | Short, grounded overview for the clinician | every check-in | `claude-sonnet-5-5` | medium |
+| Review | Second look and rationale | only when the action is *Escalate* or AI raised it | `claude-opus-5-5` | high |
+
+Enable it by setting `AI_ASSIST_ENABLED=true` plus `ANTHROPIC_API_KEY` (or `AI_PROVIDER=vertex`, `GCP_PROJECT`, `GCP_REGION` to use Claude through Google Cloud). Code is in `agents/llm_assist.py`; tests use a fake client, so no key is needed to run them. Only condition names and the question/answer text are sent: not the patient's name, date of birth, contact details or ID (though a patient could still type identifying details into a free-text answer).
+
+### AI assist and patient data
+
+There is no "HIPAA-approved model". What matters is the **agreement and service**, not the model:
+
+- Anthropic offers a Business Associate Agreement (BAA) for its first-party API, but it must be signed by the organization that will operate the system (for this project, the sponsor, not individual students) and the API organization must be set up as HIPAA-ready. Only the Messages API features Anthropic lists as eligible are covered (for example prompt caching and structured outputs); the Batch API, Files API, Code Execution and Web Fetch are not.
+- Anthropic's BAA does not extend to Claude accessed through a third-party cloud (Amazon Bedrock, Google Vertex AI). There, the cloud provider's own BAA and written confirmation that the specific Claude model and region are in scope are required.
+- Zero data retention and HIPAA configuration can't be combined on one API organization, and some newer models require 30-day retention.
+- **Until all of this is confirmed in writing, use only synthetic data** (the sample patients in `sample_data/` are synthetic) and keep `AI_ASSIST_ENABLED` off.
+- A BAA with the model provider is not enough on its own: the app also needs authentication, audit logging and encryption appropriate for PHI. Have the sponsor's compliance/legal team review before any real use.
+
 ## Project Structure
 
 ```
@@ -127,6 +151,7 @@ The chatbot generates more specific questions when `conditions`, `medications`, 
 ├── .streamlit/config.toml    # Streamlit theme
 ├── agents/
 │   ├── patient_agent.py      # Builds personalized questions, runs the check-in
+│   ├── llm_assist.py         # Optional Claude triage / overview / review tiers
 │   ├── summary_agent.py      # Flags concerns and generates the clinical note
 │   └── vitals.py             # Numeric vital-sign thresholds
 ├── database/
@@ -158,7 +183,7 @@ The chatbot generates more specific questions when `conditions`, `medications`, 
 
 ## Important Notes
 
-- **No AI model is used** for the patient check-in or summary generation. Everything runs deterministically from the patient's record and their typed responses. `models/` (Gemini, MedGemma) and `guardrails/` are left over from an earlier LLM-based design and are not called by the current flow.
+- **By default no AI model is used.** The patient check-in is always deterministic. Clinician summaries can optionally be enhanced with Claude (see above); `models/` (Gemini, MedGemma) and `guardrails/` are older and not called by the current flow.
 - **No real patient data should be committed to this repository.** The `patient_data/` directory and `.env` files are excluded via `.gitignore`.
 - The app has no authentication by default. Enable Google IAM or add a password layer before using with real patient data.
 - Only one check-in per patient per day is stored; completing a second one replaces the first.

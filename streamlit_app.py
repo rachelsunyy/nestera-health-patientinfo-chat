@@ -68,9 +68,11 @@ def patient_label(patient_id: str) -> str:
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def show_summary(summary) -> None:
+    ai_chip = (" &nbsp; " + ui_theme.chip("AI-assisted", "gray")) if summary.ai_models else ""
     st.markdown(
         "**Recommended action** &nbsp; "
-        + ui_theme.chip(summary.recommended_action, ui_theme.action_tone(summary.recommended_action)),
+        + ui_theme.chip(summary.recommended_action, ui_theme.action_tone(summary.recommended_action))
+        + ai_chip,
         unsafe_allow_html=True,
     )
     if summary.flagged_items:

@@ -60,3 +60,4 @@ class ClinicalSummary(BaseModel):
     summary_markdown: str          # Full Markdown summary for the care team
     flagged_items: list[str] = []  # Short list of items warranting clinician attention
     recommended_action: str = ""   # "routine review" | "schedule visit" | "escalate"
+    ai_models: list[str] = []      # models that contributed (empty = rules only); kept for audit
