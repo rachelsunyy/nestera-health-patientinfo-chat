@@ -17,6 +17,7 @@ from agents.llm_assist import AIAssist, AIOutcome
 from agents.markers import EMERGENCY_MARKER
 from agents.vitals import check_vitals
 from data.models import PatientRecord, DailyCheckIn, ClinicalSummary
+from agents.trends import INSUFFICIENT, WINDOW, TrendReport, assess_trend
 from database.patient_db import PatientDatabase
 
 
@@ -108,7 +109,8 @@ def _detect_flags(responses: list) -> tuple[list[str], str]:
 
 
 def _build_clinical_note(record: PatientRecord, checkin: DailyCheckIn,
-                         flagged: list[str], action: str, ai: AIOutcome | None = None) -> str:
+                         flagged: list[str], action: str, ai: AIOutcome | None = None,
+                         trend: TrendReport | None = None) -> str:
     conditions = (
         ", ".join(c.name for c in record.conditions)
         if record.conditions else record.primary_diagnosis
@@ -137,6 +139,11 @@ def _build_clinical_note(record: PatientRecord, checkin: DailyCheckIn,
         lines.append("")
 
     lines += [f"### Recommended Action: {action}", ""]
+
+    if trend and trend.status != INSUFFICIENT:
+        lines += [f"### Trend over recent check-ins: {trend.status}", ""]
+        lines += [f"- {reason}" for reason in trend.reasons]
+        lines.append("")
 
     if ai and ai.overview:
         lines += ["### AI-assisted overview", "", ai.overview, ""]
@@ -202,7 +209,16 @@ class SummaryAgent:
         if _ACTION_PRIORITY[ai.action] > _ACTION_PRIORITY[action]:
             action = ai.action
 
-        note_md = _build_clinical_note(record, checkin, flagged, action, ai)
+        # Trend tracking compares today with earlier check-ins. A worsening trend can raise a
+        # routine day to "Schedule visit", but never lowers anything.
+        history = [c for c in self.db.get_recent_checkins(self.patient_id, n=WINDOW + 5) if c.date <= today]
+        trend = assess_trend(history)
+        if trend.actionable:
+            flagged = flagged + ["Worsening trend: " + "; ".join(trend.reasons)]
+            if action == "Routine review":
+                action = "Schedule visit"
+
+        note_md = _build_clinical_note(record, checkin, flagged, action, ai, trend)
 
         summary = ClinicalSummary(
             patient_id=self.patient_id,
@@ -211,6 +227,7 @@ class SummaryAgent:
             flagged_items=flagged,
             recommended_action=action,
             ai_models=ai.models,
+            trend_status=trend.status,
         )
         self.db.save_summary(summary)
         return summary
