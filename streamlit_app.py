@@ -21,8 +21,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 st.set_page_config(
-    page_title="Hospital-At-Home",
-    page_icon="🏥",
+    page_title="Nestera Health · Daily Check-In",
+    page_icon="assets/nestera-mark.svg",
     layout="centered",
 )
 
@@ -220,7 +220,7 @@ else:
                 "status_html": ui_theme.chip("Completed" if done else "Not started", "green" if done else "gray"),
                 "action_html": (
                     ui_theme.chip(summ.recommended_action, ui_theme.action_tone(summ.recommended_action))
-                    if summ else '<span style="color:#9AAAB3">—</span>'
+                    if summ else '<span style="color:#7A8794">—</span>'
                 ),
                 "_done": done,
                 "_attention": bool(summ and summ.recommended_action != "Routine review"),
