@@ -14,6 +14,7 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -32,6 +33,7 @@ import config
 from agents.conversation_agent import ConversationalPatientAgent
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
+from agents.trends import IMPROVING, VITAL_LABELS, WINDOW, WORSENING, assess_trend
 import ui_theme
 
 ui_theme.inject_css()
@@ -244,8 +246,8 @@ else:
         ])
         st.write("")
 
-    tab_summary, tab_questions, tab_register = st.tabs(
-        ["📋 Clinical Summary", "❓ Add Questions", "➕ Register Patient"]
+    tab_summary, tab_trends, tab_questions, tab_register = st.tabs(
+        ["📋 Clinical Summary", "📈 Trends", "❓ Add Questions", "➕ Register Patient"]
     )
 
     # ── Clinical Summary ───────────────────────────────────────────────────
@@ -286,6 +288,33 @@ else:
                         for r in ci.responses:
                             st.markdown(f"- **Q:** {r.question}  \n  **A:** {r.answer}")
                         st.divider()
+
+    # ── Trends across days ─────────────────────────────────────────────────
+    with tab_trends:
+        if not has_patients:
+            st.info("Register a patient first.")
+        else:
+            report = assess_trend(db.get_recent_checkins(selected_id, n=WINDOW + 5))
+            tone = {WORSENING: "red", IMPROVING: "green"}.get(report.status, "gray")
+            st.markdown(
+                f"**Trajectory over the last {len(report.points)} check-ins** &nbsp; "
+                + ui_theme.chip(report.status, tone),
+                unsafe_allow_html=True,
+            )
+            for reason in report.reasons:
+                st.markdown(f"- {reason}")
+            if len(report.points) >= 2:
+                chart = pd.DataFrame(
+                    {VITAL_LABELS[k]: {p.date: p.vitals[k] for p in report.points if k in p.vitals}
+                     for k in VITAL_LABELS if any(k in p.vitals for p in report.points)}
+                )
+                for col in chart.columns:
+                    st.caption(col)
+                    st.line_chart(chart[col].dropna())
+                st.caption(
+                    "Trend rules and bands are prototype values, not clinically validated. "
+                    "Readings are taken from the patient's own answers."
+                )
 
     # ── Add Doctor Questions ───────────────────────────────────────────────
     with tab_questions:

@@ -62,3 +62,4 @@ class ClinicalSummary(BaseModel):
     flagged_items: list[str] = []  # Short list of items warranting clinician attention
     recommended_action: str = ""   # "routine review" | "schedule visit" | "escalate"
     ai_models: list[str] = []      # models that contributed (empty = rules only); kept for audit
+    trend_status: str = ""         # "Worsening" | "Improving" | "Stable" | "Not enough data" (see agents/trends.py)

@@ -17,6 +17,13 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def ai_off_by_default(monkeypatch):
+    """A developer's .env may enable AI; tests must never build a real client or spend API credit."""
+    monkeypatch.setattr(config, "AI_ASSIST_ENABLED", False)
+    monkeypatch.setattr(config, "AI_CONVERSATION_ENABLED", False)
+
+
 @pytest.fixture
 def db(tmp_path, monkeypatch):
     """A MockPatientDatabase that writes to a temporary folder, with the sample patients loaded."""

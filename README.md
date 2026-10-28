@@ -16,6 +16,7 @@ As soon as the patient finishes, a clinical note is automatically generated from
 - Doctor-specified questions added per patient per day (shown first in the check-in)
 - Clinical summary derived entirely from patient responses — no hallucinations, no fabrication
 - Automatic flagging of concerning answers: keyword matching with negation ("no falls" is not flagged) plus numeric checks on reported vitals (SpO2, temperature, blood pressure, blood glucose, breathing rate)
+- Trend tracking across days: each check-in is compared with earlier ones and labelled Improving / Stable / Worsening, with reasons
 - Clinician dashboard with a today's-check-ins overview, status chips and recommended action per patient
 - Register new patients by uploading a JSON file
 - All data stored persistently in Google Cloud Storage
@@ -117,6 +118,18 @@ The chatbot generates more specific questions when `conditions`, `medications`, 
 - **Vital-sign numbers**, read from the answers to the SpO2, temperature, blood pressure, blood sugar and breathing-rate questions. Example defaults: SpO2 below 90% escalates and below 92% schedules a visit; BP at or above 180/120 escalates and at or above 160/100 schedules a visit.
 
 > The thresholds in `agents/vitals.py` are general-purpose **demo values**. They must be reviewed by the clinical team before any real use and ideally made patient-specific (for example, a COPD patient's normal SpO2 is lower).
+
+## Trend tracking across days
+
+`agents/trends.py` (no AI, no extra data collected) compares the latest check-in with up to four earlier ones and labels the patient **Worsening**, **Improving**, **Stable**, or **Not enough data** (fewer than two check-ins). Each label comes with reasons the clinician can verify against the raw answers.
+
+- **Vital readings** (SpO2, temperature, systolic BP, blood sugar, breathing rate) are compared with the earlier readings: moving further outside a normal band, or a slow drift the wrong way inside it (for example SpO2 98 → 97 → 95), counts as worsening; moving back toward normal counts as improving.
+- **Symptom reports**: answers saying "worse" (negation-aware: "not worse" doesn't count; "not better" does) on two of the last three check-ins, or more worse reports than last time.
+- **Recommended action** rising above anything seen earlier in the window.
+
+A worsening trend adds a flagged item and raises a *Routine review* day to *Schedule visit*; it never lowers an action. The result appears in the clinical note, on the dashboard's **Trends** tab (with charts), and at `GET /trend/{patient_id}`.
+
+> The normal bands and margins at the top of `agents/trends.py` are prototype values and need clinical review, like the thresholds in `agents/vitals.py`. Only readings the patient actually reports are used, so a skipped measurement produces no trend for that vital.
 
 ## Optional AI assist (Anthropic Claude)
 

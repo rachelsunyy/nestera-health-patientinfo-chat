@@ -169,3 +169,54 @@ def check_vitals(question: str, answer: str, topic: str = "") -> VitalFlag | Non
         if any(k in q for k in keywords):
             return checker(a)
     return None
+
+
+# ── Numeric readings (used for trend tracking) ─────────────────────────────
+
+_KEY_RULES = [
+    (("spo2", "oxygen"), "spo2"),
+    (("temperature",), "temperature"),
+    (("blood pressure",), "blood_pressure"),
+    (("check your blood sugar", "glucose"), "blood_sugar_reading"),
+    (("breathing rate", "respiratory rate"), "resp_rate"),
+]
+
+
+def vital_key(question: str, topic: str = "") -> str | None:
+    """Which vital sign a question asks about (same resolution rules as `check_vitals`)."""
+    if topic and topic != "followup":
+        return topic if topic in _TOPIC_RULES else None
+    q = question.lower()
+    for keywords, key in _KEY_RULES:
+        if any(k in q for k in keywords):
+            return key
+    return None
+
+
+def vital_reading(key: str, answer: str) -> float | None:
+    """The single most concerning number in an answer, or None if no usable reading.
+
+    Units: SpO2 %, temperature °F (°C answers are converted), blood pressure = systolic
+    mmHg, blood sugar mg/dL, breathing rate breaths/min. When an answer holds several
+    numbers, SpO2 takes the lowest, temperature the one furthest from 98.6 °F, and the
+    others the highest, matching how the threshold checks pick their worst value.
+    """
+    a = answer.lower().replace("°", " ")
+    if key == "spo2":
+        values = _numbers(_BP.sub(" ", a), 50, 100)
+        return min(values) if values else None
+    if key == "temperature":
+        fahrenheit = [v * 9 / 5 + 32 if v <= 45 else v for v in _numbers(a, 30, 110) if v <= 45 or v >= 90]
+        return max(fahrenheit, key=lambda f: abs(f - 98.6)) if fahrenheit else None
+    if key == "blood_pressure":
+        systolic = [int(m.group(1)) for m in _BP.finditer(a)
+                    if 50 <= int(m.group(1)) <= 300 and 30 <= int(m.group(2)) <= 200
+                    and int(m.group(1)) > int(m.group(2))]
+        return float(max(systolic)) if systolic else None
+    if key == "blood_sugar_reading":
+        values = _numbers(a, 20, 700)
+        return max(values) if values else None
+    if key == "resp_rate":
+        values = _numbers(a, 4, 80)
+        return max(values) if values else None
+    return None

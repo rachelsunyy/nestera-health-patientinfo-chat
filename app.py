@@ -14,6 +14,7 @@ Endpoints:
 
   POST /summary/{patient_id}                   — generate today's clinical summary
   GET  /summary/{patient_id}                   — retrieve today's summary
+  GET  /trend/{patient_id}                     — trajectory across recent check-ins
 
 Run locally:
   uvicorn app:app --reload --port 8080
@@ -36,6 +37,7 @@ from data.models import PatientRecord, DoctorQuestions, ClinicalSummary
 from database.patient_db import MockPatientDatabase, GCSPatientDatabase, FirestorePatientDatabase
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
+from agents.trends import assess_trend, WINDOW
 
 
 # ── Database selection ─────────────────────────────────────────────────────
@@ -182,6 +184,25 @@ def get_summary(patient_id: str, checkin_date: str | None = None):
     if summary is None:
         raise HTTPException(404, f"No summary for {patient_id} on {d}")
     return summary
+
+
+@app.get("/trend/{patient_id}")
+def get_trend(patient_id: str):
+    """Improving / Stable / Worsening across the patient's recent check-ins, with the reasons."""
+    try:
+        db.get_patient(patient_id)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    report = assess_trend(db.get_recent_checkins(patient_id, n=WINDOW + 5))
+    return {
+        "patient_id": patient_id,
+        "status": report.status,
+        "reasons": report.reasons,
+        "points": [
+            {"date": p.date, "action": p.action, "vitals": p.vitals, "worse": p.worse, "better": p.better}
+            for p in report.points
+        ],
+    }
 
 
 # ── Health check ───────────────────────────────────────────────────────────
