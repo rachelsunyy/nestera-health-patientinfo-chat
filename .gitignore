@@ -21,3 +21,6 @@ patient_data/
 
 # Evaluation reports
 evals/reports/
+
+# Raw third-party datasets (Synthea, NoteChat); see evals/external/README
+external_data/

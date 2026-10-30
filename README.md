@@ -131,6 +131,24 @@ A worsening trend adds a flagged item and raises a *Routine review* day to *Sche
 
 > The normal bands and margins at the top of `agents/trends.py` are prototype values and need clinical review, like the thresholds in `agents/vitals.py`. Only readings the patient actually reports are used, so a skipped measurement produces no trend for that vital.
 
+## External datasets (Synthea and NoteChat)
+
+Both are synthetic, so no PHI is involved. Raw downloads go in `external_data/`, which is git-ignored. See each tool's docstring for the full details.
+
+**Synthea patients** (`data/synthea_import.py`, Apache-2.0). Maps Synthea's SNOMED conditions onto the ones the question builder knows, builds patient records (active medications, allergies, implied monitoring parameters) and can register them in the app.
+
+```bash
+curl -L -o synthea.zip https://synthetichealth.github.io/synthea-sample-data/downloads/latest/synthea_sample_data_csv_latest.zip
+unzip synthea.zip -d external_data/synthea
+python -m data.synthea_import --src external_data/synthea                      # report: conditions and question coverage
+python -m data.synthea_import --src external_data/synthea --register           # add the patients to the app
+python -m data.synthea_import --src external_data/synthea --vitals-out evals/synthea_vitals.jsonl   # labeled vital-sign check-ins
+```
+
+The ~100-patient sample is small for our purpose: 29 patients have a usable condition, none of them alive with heart failure or stroke, and asthma, sepsis and heart attack have no question templates in the app (reported as a coverage gap). For a bigger, more relevant cohort, run Synthea itself (needs Java) with module filters and point `--src` at its `output/csv` folder.
+
+**NoteChat patient speech** (`data/notechat_import.py`, Wang et al., 2024). 10,000 synthetic doctor-patient dialogues with **no urgency labels**, so they can't be scored automatically. The tool audits how often the rules fire on realistic patient speech (`--audit`), writes a blind sample for the team or a clinician to label (`--sheet`), and turns the labeled rows into eval cases for `evals/run_eval.py` (`--labels`). The dialogues are visit conversations about past events, not daily home check-ins, and the dataset card states no licence (it derives from case reports under a non-commercial licence), so keep it out of the repository and ask Nestera before any product use.
+
 ## Optional AI assist (Anthropic Claude)
 
 Off by default. The deterministic rules above always run first and set a floor: **AI can raise a recommended action or add notes, but never lower it**, and its output is shown to clinicians only, never to patients. If AI is off, misconfigured, errors, or refuses, the check-in still gets its normal rules-based summary.
@@ -159,6 +177,19 @@ python evals/run_eval.py --ai --triage-model claude-sonnet-5-5   # compare anoth
 ```
 
 `evals/dataset.jsonl` holds 37 synthetic check-ins with expected actions, including informal phrasings the keyword rules miss and prompt-injection attempts. The report counts **under-triage** (recommending less than needed) separately from over-triage, because missing a sick patient is the costlier error. **The labels were written without clinician input and the cases were designed to include the rules' known gaps, so the numbers are a development aid, not clinical evidence.** Have clinicians review and extend the dataset before relying on it.
+
+**Larger set.** `evals/dataset_v2.jsonl` holds 394 synthetic check-ins: the original 37 (unchanged) plus 357 more across 17 categories, each with a `category`, a `source` (`original`, `template` or `authored`) and a `split` (`dev` or `test`, fixed by a hash of the id).
+
+```bash
+python evals/run_eval.py --dataset evals/dataset_v2.jsonl                 # whole set, with a per-category table
+python evals/run_eval.py --dataset evals/dataset_v2.jsonl --split test    # held-out cases only
+python evals/build_dataset.py                                             # regenerate the file (deterministic)
+```
+
+- **What is generated and what is written by hand.** Routine check-ins and the numeric vital-sign sweeps (SpO2, temperature, blood pressure, blood sugar including mmol/L, breathing rate, values on both sides of every threshold) come from templates. The informal, typo and shorthand phrasings, benign sentences that contain trigger words ("I fell asleep", "zero shortness of breath"), contradictory and rambling answers, prompt-injection attempts, and the multi-finding check-ins use hand-written phrasings in `evals/case_bank.py`.
+- **How labels were chosen.** Each expected action follows the clinical meaning of the case, using the policy at the top of `evals/case_bank.py`, never the output of the rules or a model. The numeric labels use a separate copy of the documented thresholds, so a mismatch with `agents/vitals.py` would show up as a failure. A test checks the committed file is exactly what the generator produces.
+- **Reading the numbers.** Read the per-category table, not just the overall exact match, because the overall figure depends on how many easy numeric cases the set contains. Tune prompts or rules on `dev` only and report `test`.
+- **Limits.** All labels are still synthetic and not clinician-reviewed, and the phrasings come from the authors, not from real patients. More cases make the estimate steadier, but they do not make it clinical evidence.
 
 
 
