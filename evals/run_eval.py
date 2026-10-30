@@ -85,17 +85,37 @@ def render(label: str, s: dict) -> str:
     return "\n".join(lines)
 
 
+def render_by_category(cases: list[dict], preds: list[str]) -> str:
+    """Per-category table; only meaningful for datasets whose cases carry a `category` field."""
+    cats: dict[str, list[tuple[dict, str]]] = {}
+    for c, p in zip(cases, preds):
+        cats.setdefault(c.get("category", "uncategorized"), []).append((c, p))
+    lines = ["| category | n | exact match | under-triaged | over-triaged |", "|---|---|---|---|---|"]
+    for cat, items in sorted(cats.items()):
+        n = len(items)
+        exact = sum(1 for c, p in items if p == c["expected_action"])
+        under = sum(1 for c, p in items if RANK[p] < RANK[c["expected_action"]])
+        over = sum(1 for c, p in items if RANK[p] > RANK[c["expected_action"]])
+        lines.append(f"| {cat} | {n} | {exact / n:.0%} | {under} | {over} |")
+    return "\n".join(lines)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ai", action="store_true", help="also run the AI tiers (spends API credit)")
-    ap.add_argument("--dataset", type=Path, default=DATASET)
+    ap.add_argument("--dataset", type=Path, default=DATASET, help="e.g. evals/dataset_v2.jsonl (larger set)")
+    ap.add_argument("--split", choices=["dev", "test"], help="only cases in this split (datasets with a `split` field)")
     ap.add_argument("--triage-model"); ap.add_argument("--review-model")
     ap.add_argument("--out", type=Path, help="write the markdown report here")
     args = ap.parse_args()
 
     cases = load_cases(args.dataset)
+    if args.split:
+        cases = [c for c in cases if c.get("split") == args.split]
     rules = [predict(c, None)[0] for c in cases]
     sections = [render("Rules only", summarize(cases, rules))]
+    if any("category" in c for c in cases):
+        sections.append("### Rules only, by category\n\n" + render_by_category(cases, rules))
 
     if args.ai:
         if args.triage_model:
@@ -111,6 +131,8 @@ def main() -> None:
         final = [predict(c, ai)[1] for c in cases]
         sections.append(render(f"Rules + AI (triage {config.AI_MODEL_TRIAGE}, review {config.AI_MODEL_REVIEW})",
                                summarize(cases, final)))
+        if any("category" in c for c in cases):
+            sections.append("### Rules + AI, by category\n\n" + render_by_category(cases, final))
 
     report = ("# Triage evaluation\n\n"
               "Synthetic labels, not clinician-reviewed. See evals/run_eval.py.\n\n" + "\n\n".join(sections) + "\n")
