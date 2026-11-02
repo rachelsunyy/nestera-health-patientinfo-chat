@@ -169,6 +169,8 @@ def test_demo_walkthrough_matches_the_screen(db, tmp_path, open_page):
     assert "Blood sugar returning toward normal: 310 mg/dL → 265 mg/dL → 220 mg/dL → 175 mg/dL → 142 mg/dL" in bullets(clinician)
     open_patient(clinician, "demo_twice")
     assert clinician.caption[0].value.startswith("2 check-ins today. Showing the latest, from ")
+    answers = [" ".join(t.value["Answer"]) for t in clinician.table]
+    assert "172 over 104" in answers[0] and "132 over 84" in answers[1]
 
     opening = check_in(patient, LIVE_ANSWERS)
     assert "I'll ask you 8 questions" in opening
@@ -179,7 +181,7 @@ def test_demo_walkthrough_matches_the_screen(db, tmp_path, open_page):
     assert [r[0] for r in roster(clinician)][:3] == ["Grace Thompson", "Walter Briggs", "Samuel Park"]
     assert roster_cells(clinician, "demo_live")[-2:] == ["Completed", "Escalate"]
     open_patient(clinician, "demo_live")
-    assert [b for b in bullets(clinician) if not b.startswith("**Q:**")][:2] == [
+    assert bullets(clinician)[:2] == [
         'Low oxygen saturation: 89% (below 90%) — patient said "It was 89."',
         "Worsening trend: Oxygen saturation moving outside the normal range: 96% → 96% → 89%; "
         "Recommended action rose to Escalate (previously at most Routine review)",
@@ -200,3 +202,5 @@ def test_demo_walkthrough_matches_the_screen(db, tmp_path, open_page):
     assert bullets(clinician)[0] == "Worsening trend: Oxygen saturation drifting the wrong way: 96% → 96% → 89% → 93%"
     today = date.today().isoformat()
     assert sum(m.value.startswith(f"**{today} at ") for m in clinician.markdown) == 2
+    newest = clinician.table[0].value
+    assert (newest["Question"].iloc[0], newest["Answer"].iloc[0]) == (DOCTOR_QUESTION, "No, not today.")

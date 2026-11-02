@@ -85,3 +85,14 @@ def test_clinician_link_opens_the_patient_detail(db, open_page):
     at = open_page("clinician", patient="patient_003")
     assert any(b.label == "Back to roster" for b in at.button)
     assert not [b for b in at.button if b.label == "Open"]
+
+
+def test_recent_responses_are_one_question_answer_table_per_check_in(db, open_page, tmp_path):
+    seed_demo.seed(tmp_path)
+    at = open_page("clinician", patient="demo_twice")
+    checkins = db.get_recent_checkins("demo_twice", n=5)
+    assert len(at.table) == len(checkins) == 3
+    for table, ci in zip(at.table, checkins):
+        df = table.value
+        assert list(df.columns) == ["Question", "Answer"]
+        assert list(df["Answer"]) == [r.answer for r in ci.responses]

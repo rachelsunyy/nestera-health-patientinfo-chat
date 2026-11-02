@@ -160,9 +160,10 @@ def show_patient(selected_id: str) -> None:
             with st.expander("View recent check-in responses"):
                 for ci in history:
                     st.markdown(f"**{ci.date} at {checkin_time(ci)}**")
-                    for r in ci.responses:
-                        st.markdown(f"- **Q:** {r.question}  \n  **A:** {r.answer}")
-                    st.divider()
+                    st.table(pd.DataFrame(
+                        {"Question": [r.question for r in ci.responses], "Answer": [r.answer for r in ci.responses]},
+                        index=range(1, len(ci.responses) + 1),
+                    ))
 
     with tab_trends:
         report = assess_trend(db.get_recent_checkins(selected_id, n=WINDOW + 5))
