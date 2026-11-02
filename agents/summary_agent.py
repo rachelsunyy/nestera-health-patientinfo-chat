@@ -187,15 +187,19 @@ class SummaryAgent:
         self.db = db
         self.ai = ai if ai is not None else AIAssist()
 
-    def generate(self, checkin_date: str | None = None) -> ClinicalSummary:
-        today = checkin_date or date.today().isoformat()
-
+    def generate(self, checkin_id: str | None = None) -> ClinicalSummary:
+        """Summarise one check-in, by default the patient's latest one today."""
         record = self.db.get_patient(self.patient_id)
-        checkin = self.db.get_checkin(self.patient_id, today)
-        if checkin is None:
-            raise ValueError(
-                f"No check-in found for {self.patient_id} on {today}"
-            )
+        if checkin_id is None:
+            today = date.today().isoformat()
+            todays = self.db.get_checkins_for_date(self.patient_id, today)
+            if not todays:
+                raise ValueError(f"No check-in found for {self.patient_id} on {today}")
+            checkin = todays[-1]
+        else:
+            checkin = self.db.get_checkin(self.patient_id, checkin_id)
+            if checkin is None:
+                raise ValueError(f"No check-in {checkin_id} found for {self.patient_id}")
 
         flagged, action = _detect_flags(checkin.responses)
 
@@ -209,9 +213,9 @@ class SummaryAgent:
         if _ACTION_PRIORITY[ai.action] > _ACTION_PRIORITY[action]:
             action = ai.action
 
-        # Trend tracking compares today with earlier check-ins. A worsening trend can raise a
-        # routine day to "Schedule visit", but never lowers anything.
-        history = [c for c in self.db.get_recent_checkins(self.patient_id, n=WINDOW + 5) if c.date <= today]
+        # Trend tracking compares this check-in with earlier ones. A worsening trend can raise a
+        # routine check-in to "Schedule visit", but never lowers anything.
+        history = [c for c in self.db.get_recent_checkins(self.patient_id, n=WINDOW + 5) if c.id <= checkin.id]
         trend = assess_trend(history)
         if trend.actionable:
             flagged = flagged + ["Worsening trend: " + "; ".join(trend.reasons)]
@@ -222,7 +226,8 @@ class SummaryAgent:
 
         summary = ClinicalSummary(
             patient_id=self.patient_id,
-            date=today,
+            date=checkin.date,
+            checkin_id=checkin.id,
             summary_markdown=note_md,
             flagged_items=flagged,
             recommended_action=action,

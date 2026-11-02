@@ -1,10 +1,11 @@
-"""Longitudinal trend tracking across daily check-ins.
+"""Longitudinal trend tracking across check-ins.
 
-Deterministic and model-free. Each stored check-in is reduced to a `DayPoint`
+Deterministic and model-free. Each stored check-in is reduced to a `CheckInPoint`
 (its recommended action, any reported vital-sign readings, and counts of
-"worse"/"better" symptom reports). The latest day is then compared with the
-earlier days in the window to label the patient Improving, Stable or Worsening,
-with plain-language reasons the clinician can verify.
+"worse"/"better" symptom reports). The latest check-in is then compared with the
+earlier ones in the window, two on the same day counting as two points, to label
+the patient Improving, Stable or Worsening, with plain-language reasons the
+clinician can verify.
 
 IMPORTANT: the bands and margins below are DEMO values chosen for a prototype.
 Like the thresholds in `vitals.py`, they need clinical review before real use.
@@ -40,8 +41,9 @@ _BETTER = ("better", "improved", "improving", "resolved")
 
 
 @dataclass
-class DayPoint:
+class CheckInPoint:
     date: str
+    label: str          # unique within a report: the date, plus the time when the date repeats
     action: str
     vitals: dict[str, float] = field(default_factory=dict)
     worse: int = 0      # answers reporting a symptom as worse
@@ -52,7 +54,7 @@ class DayPoint:
 class TrendReport:
     status: str
     reasons: list[str]
-    points: list[DayPoint]
+    points: list[CheckInPoint]
 
     @property
     def actionable(self) -> bool:
@@ -71,11 +73,11 @@ def _count_phrases(answer: str, phrases: tuple[str, ...]) -> int:
     return hits
 
 
-def day_point(checkin) -> DayPoint:
+def checkin_point(checkin, label: str) -> CheckInPoint:
     """Reduce one stored check-in to the signals trend tracking compares."""
     from agents.summary_agent import _detect_flags
     _, action = _detect_flags(checkin.responses)
-    point = DayPoint(date=checkin.date, action=action)
+    point = CheckInPoint(date=checkin.date, label=label, action=action)
     for r in checkin.responses:
         if r.question == EMERGENCY_MARKER:
             continue
@@ -101,18 +103,18 @@ def _fmt(key: str, value: float) -> str:
     return f"{value:g}{_VITALS[key]['unit']}"
 
 
-def _vital_signals(points: list[DayPoint]) -> tuple[list[str], list[str]]:
+def _vital_signals(points: list[CheckInPoint]) -> tuple[list[str], list[str]]:
     """(worsening reasons, improving reasons) from numeric readings."""
     worse: list[str] = []
     better: list[str] = []
     for key, spec in _VITALS.items():
-        series = [(p.date, p.vitals[key]) for p in points if key in p.vitals]
-        if len(series) < 2 or series[-1][0] != points[-1].date:
-            continue                    # need a reading today and at least one earlier one
-        latest, prior = series[-1][1], [v for _, v in series[:-1]]
+        series = [p.vitals[key] for p in points if key in p.vitals]
+        if len(series) < 2 or key not in points[-1].vitals:
+            continue                    # need a reading in the latest check-in and at least one earlier one
+        latest, prior = series[-1], series[:-1]
         base_dist = sum(_distance(key, v) for v in prior) / len(prior)
         dist = _distance(key, latest)
-        trail = " → ".join(_fmt(key, v) for _, v in series)
+        trail = " → ".join(_fmt(key, v) for v in series)
         if dist > base_dist + spec["margin"]:
             worse.append(f"{spec['label']} moving outside the normal range: {trail}")
             continue
@@ -128,9 +130,9 @@ def _vital_signals(points: list[DayPoint]) -> tuple[list[str], list[str]]:
 
 
 def assess_trend(checkins: list, window: int = WINDOW) -> TrendReport:
-    """Label the patient's trajectory from check-ins (any order); the newest one is 'today'."""
-    ordered = sorted(checkins, key=lambda c: c.date)[-window:]
-    points = [day_point(c) for c in ordered]
+    """Label the patient's trajectory from check-ins (any order); the newest one is the one assessed."""
+    ordered = sorted(checkins, key=lambda c: c.id)[-window:]
+    points = [checkin_point(c, label) for c, label in zip(ordered, _point_labels(ordered))]
     if len(points) < 2:
         return TrendReport(INSUFFICIENT, ["Trend tracking needs at least two check-ins."], points)
 
@@ -142,7 +144,7 @@ def assess_trend(checkins: list, window: int = WINDOW) -> TrendReport:
     if rank[latest.action] > prev_peak:
         worse.append(f"Recommended action rose to {latest.action} (previously at most {_label(prev_peak)})")
     elif rank[latest.action] < rank[previous[-1].action] and rank[latest.action] == 0:
-        better.append(f"Recommended action eased to {latest.action} (was {previous[-1].action} yesterday)")
+        better.append(f"Recommended action eased to {latest.action} (was {previous[-1].action} at the previous check-in)")
 
     recent = points[-3:]
     if latest.worse and sum(1 for p in recent if p.worse) >= 2:
@@ -158,6 +160,22 @@ def assess_trend(checkins: list, window: int = WINDOW) -> TrendReport:
         return TrendReport(IMPROVING, better, points)
     return TrendReport(STABLE, ["No meaningful change across the last "
                                 f"{len(points)} check-ins."], points)
+
+
+def _point_labels(checkins: list) -> list[str]:
+    """The date, plus as much of the time (HH:MM, then HH:MM:SS, then all of it) as tells same-day check-ins apart."""
+    times: dict[str, list[str]] = {}
+    for c in checkins:
+        times.setdefault(c.date, []).append(c.timestamp[11:])
+    labels = []
+    for c in checkins:
+        same_day = times[c.date]
+        if len(same_day) == 1:
+            labels.append(c.date)
+            continue
+        width = next((w for w in (5, 8) if len({t[:w] for t in same_day}) == len(same_day)), None)
+        labels.append(f"{c.date} {c.timestamp[11:][:width]}")
+    return labels
 
 
 def _label(priority: int) -> str:

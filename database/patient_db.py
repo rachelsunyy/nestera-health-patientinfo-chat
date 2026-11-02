@@ -2,25 +2,27 @@
 
 PatientDatabase defines the interface every backend must satisfy.
 MockPatientDatabase  — local JSON files (development/testing)
-GCSPatientDatabase   — Google Cloud Storage JSON files (production, no Firestore needed)
-FirestorePatientDatabase — Firestore (if available)
+GCSPatientDatabase   — Google Cloud Storage JSON files (production)
 
 To switch backends, change one line in app.py:
     db = MockPatientDatabase()
     db = GCSPatientDatabase("your-bucket-name")
-    db = FirestorePatientDatabase("your-project-id")
 """
 
 from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
-from datetime import date
 from pathlib import Path
 
 from data.models import (
     PatientRecord, DoctorQuestions, DailyCheckIn, ClinicalSummary
 )
 from config import DATA_DIR
+
+
+def _load_checkin(key: str, data: dict) -> DailyCheckIn:
+    """Parse a stored check-in; records saved before ids existed take their id from the file name."""
+    return DailyCheckIn.model_validate({"id": key, **data})
 
 
 # ── Abstract interface ─────────────────────────────────────────────────────
@@ -49,11 +51,15 @@ class PatientDatabase(ABC):
 
     @abstractmethod
     def save_checkin(self, checkin: DailyCheckIn) -> None:
-        """Persist a completed daily check-in."""
+        """Persist a completed check-in under its id."""
 
     @abstractmethod
-    def get_checkin(self, patient_id: str, checkin_date: str) -> DailyCheckIn | None:
-        """Load a specific check-in, or None if it doesn't exist."""
+    def get_checkin(self, patient_id: str, checkin_id: str) -> DailyCheckIn | None:
+        """Load a specific check-in by id, or None if it doesn't exist."""
+
+    @abstractmethod
+    def get_checkins_for_date(self, patient_id: str, for_date: str) -> list[DailyCheckIn]:
+        """Return every check-in on a date, oldest first."""
 
     @abstractmethod
     def get_recent_checkins(self, patient_id: str, n: int = 3) -> list[DailyCheckIn]:
@@ -64,8 +70,8 @@ class PatientDatabase(ABC):
         """Persist a clinical summary."""
 
     @abstractmethod
-    def get_summary(self, patient_id: str, summary_date: str) -> ClinicalSummary | None:
-        """Load a specific summary, or None."""
+    def get_summary(self, patient_id: str, checkin_id: str) -> ClinicalSummary | None:
+        """Load the summary of a check-in, or None."""
 
 
 # ── Mock (local JSON) implementation ──────────────────────────────────────
@@ -77,8 +83,9 @@ class MockPatientDatabase(PatientDatabase):
       <patient_id>/
         record.json
         doctor_questions/YYYY-MM-DD.json
-        checkins/YYYY-MM-DD.json
-        summaries/YYYY-MM-DD.json
+        checkins/<checkin id>.json     e.g. 2026-11-01T17-30-05.123456.json
+        summaries/<checkin id>.json
+    Records written before multiple daily check-ins are named YYYY-MM-DD.json.
     """
 
     def _patient_dir(self, patient_id: str) -> Path:
@@ -115,101 +122,36 @@ class MockPatientDatabase(PatientDatabase):
 
     # Check-ins
     def save_checkin(self, checkin: DailyCheckIn) -> None:
-        path = self._patient_dir(checkin.patient_id) / "checkins" / f"{checkin.date}.json"
+        path = self._patient_dir(checkin.patient_id) / "checkins" / f"{checkin.id}.json"
         path.write_text(checkin.model_dump_json(indent=2))
 
-    def get_checkin(self, patient_id: str, checkin_date: str) -> DailyCheckIn | None:
-        path = self._patient_dir(patient_id) / "checkins" / f"{checkin_date}.json"
-        if not path.exists():
-            return None
-        return DailyCheckIn.model_validate_json(path.read_text())
+    def get_checkin(self, patient_id: str, checkin_id: str) -> DailyCheckIn | None:
+        path = self._patient_dir(patient_id) / "checkins" / f"{checkin_id}.json"
+        return self._read_checkin(path) if path.exists() else None
+
+    def get_checkins_for_date(self, patient_id: str, for_date: str) -> list[DailyCheckIn]:
+        files = sorted((self._patient_dir(patient_id) / "checkins").glob(f"{for_date}*.json"))
+        return [self._read_checkin(f) for f in files]
 
     def get_recent_checkins(self, patient_id: str, n: int = 3) -> list[DailyCheckIn]:
         d = self._patient_dir(patient_id) / "checkins"
         files = sorted(d.glob("*.json"), reverse=True)[:n]
-        return [DailyCheckIn.model_validate_json(f.read_text()) for f in files]
+        return [self._read_checkin(f) for f in files]
+
+    @staticmethod
+    def _read_checkin(path: Path) -> DailyCheckIn:
+        return _load_checkin(path.stem, json.loads(path.read_text()))
 
     # Summaries
     def save_summary(self, summary: ClinicalSummary) -> None:
-        path = self._patient_dir(summary.patient_id) / "summaries" / f"{summary.date}.json"
+        path = self._patient_dir(summary.patient_id) / "summaries" / f"{summary.checkin_id}.json"
         path.write_text(summary.model_dump_json(indent=2))
 
-    def get_summary(self, patient_id: str, summary_date: str) -> ClinicalSummary | None:
-        path = self._patient_dir(patient_id) / "summaries" / f"{summary_date}.json"
+    def get_summary(self, patient_id: str, checkin_id: str) -> ClinicalSummary | None:
+        path = self._patient_dir(patient_id) / "summaries" / f"{checkin_id}.json"
         if not path.exists():
             return None
         return ClinicalSummary.model_validate_json(path.read_text())
-
-
-# ── Firestore implementation (Google Cloud) ────────────────────────────────
-
-class FirestorePatientDatabase(PatientDatabase):
-    """Cloud Firestore backend for production on Google Cloud.
-
-    Collections:
-      patients/{patient_id}                         → PatientRecord
-      patients/{patient_id}/doctor_questions/{date} → DoctorQuestions
-      patients/{patient_id}/checkins/{date}         → DailyCheckIn
-      patients/{patient_id}/summaries/{date}        → ClinicalSummary
-
-    Install:  pip install google-cloud-firestore
-    Auth:     Application Default Credentials (automatic on Cloud Run)
-              or set GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json locally
-    """
-
-    def __init__(self, project_id: str) -> None:
-        from google.cloud import firestore
-        self._db = firestore.Client(project=project_id)
-
-    def _patients(self):
-        return self._db.collection("patients")
-
-    def get_patient(self, patient_id: str) -> PatientRecord:
-        doc = self._patients().document(patient_id).get()
-        if not doc.exists:
-            raise FileNotFoundError(f"No patient record found for ID '{patient_id}'")
-        return PatientRecord.model_validate(doc.to_dict())
-
-    def save_patient(self, record: PatientRecord) -> None:
-        self._patients().document(record.patient_id).set(record.model_dump())
-
-    def list_patient_ids(self) -> list[str]:
-        return [d.id for d in self._patients().stream()]
-
-    def get_doctor_questions(self, patient_id: str, for_date: str) -> list[str]:
-        doc = self._patients().document(patient_id)\
-                  .collection("doctor_questions").document(for_date).get()
-        if not doc.exists:
-            return []
-        return DoctorQuestions.model_validate(doc.to_dict()).questions
-
-    def save_doctor_questions(self, dq: DoctorQuestions) -> None:
-        self._patients().document(dq.patient_id)\
-            .collection("doctor_questions").document(dq.date).set(dq.model_dump())
-
-    def save_checkin(self, checkin: DailyCheckIn) -> None:
-        self._patients().document(checkin.patient_id)\
-            .collection("checkins").document(checkin.date).set(checkin.model_dump())
-
-    def get_checkin(self, patient_id: str, checkin_date: str) -> DailyCheckIn | None:
-        doc = self._patients().document(patient_id)\
-                  .collection("checkins").document(checkin_date).get()
-        return DailyCheckIn.model_validate(doc.to_dict()) if doc.exists else None
-
-    def get_recent_checkins(self, patient_id: str, n: int = 3) -> list[DailyCheckIn]:
-        docs = self._patients().document(patient_id)\
-                   .collection("checkins")\
-                   .order_by("date", direction="DESCENDING").limit(n).stream()
-        return [DailyCheckIn.model_validate(d.to_dict()) for d in docs]
-
-    def save_summary(self, summary: ClinicalSummary) -> None:
-        self._patients().document(summary.patient_id)\
-            .collection("summaries").document(summary.date).set(summary.model_dump())
-
-    def get_summary(self, patient_id: str, summary_date: str) -> ClinicalSummary | None:
-        doc = self._patients().document(patient_id)\
-                  .collection("summaries").document(summary_date).get()
-        return ClinicalSummary.model_validate(doc.to_dict()) if doc.exists else None
 
 
 # ── Google Cloud Storage implementation ────────────────────────────────────
@@ -217,11 +159,11 @@ class FirestorePatientDatabase(PatientDatabase):
 class GCSPatientDatabase(PatientDatabase):
     """Cloud Storage backend — stores JSON blobs in a GCS bucket.
 
-    No Firestore needed. Same file layout as MockPatientDatabase but in GCS:
+    Same file layout as MockPatientDatabase but in GCS:
       gs://<bucket>/patients/<patient_id>/record.json
       gs://<bucket>/patients/<patient_id>/doctor_questions/YYYY-MM-DD.json
-      gs://<bucket>/patients/<patient_id>/checkins/YYYY-MM-DD.json
-      gs://<bucket>/patients/<patient_id>/summaries/YYYY-MM-DD.json
+      gs://<bucket>/patients/<patient_id>/checkins/<checkin id>.json
+      gs://<bucket>/patients/<patient_id>/summaries/<checkin id>.json
 
     Install:  pip install google-cloud-storage
     Auth:     Application Default Credentials (automatic on Cloud Run)
@@ -285,26 +227,28 @@ class GCSPatientDatabase(PatientDatabase):
 
     # Check-ins
     def save_checkin(self, checkin: DailyCheckIn) -> None:
-        self._write(f"{checkin.patient_id}/checkins/{checkin.date}.json", checkin.model_dump())
+        self._write(f"{checkin.patient_id}/checkins/{checkin.id}.json", checkin.model_dump())
 
-    def get_checkin(self, patient_id: str, checkin_date: str) -> DailyCheckIn | None:
-        data = self._read(f"{patient_id}/checkins/{checkin_date}.json")
-        return DailyCheckIn.model_validate(data) if data else None
+    def get_checkin(self, patient_id: str, checkin_id: str) -> DailyCheckIn | None:
+        data = self._read(f"{patient_id}/checkins/{checkin_id}.json")
+        return _load_checkin(checkin_id, data) if data else None
+
+    def _load_checkin_blobs(self, names: list[str]) -> list[DailyCheckIn]:
+        return [
+            _load_checkin(Path(name).stem, json.loads(self._bucket.blob(name).download_as_text()))
+            for name in names
+        ]
+
+    def get_checkins_for_date(self, patient_id: str, for_date: str) -> list[DailyCheckIn]:
+        return self._load_checkin_blobs(sorted(self._list_blobs(f"{patient_id}/checkins/{for_date}")))
 
     def get_recent_checkins(self, patient_id: str, n: int = 3) -> list[DailyCheckIn]:
-        blobs = sorted(
-            self._list_blobs(f"{patient_id}/checkins/"), reverse=True
-        )[:n]
-        result = []
-        for name in blobs:
-            blob = self._bucket.blob(name)
-            result.append(DailyCheckIn.model_validate(json.loads(blob.download_as_text())))
-        return result
+        return self._load_checkin_blobs(sorted(self._list_blobs(f"{patient_id}/checkins/"), reverse=True)[:n])
 
     # Summaries
     def save_summary(self, summary: ClinicalSummary) -> None:
-        self._write(f"{summary.patient_id}/summaries/{summary.date}.json", summary.model_dump())
+        self._write(f"{summary.patient_id}/summaries/{summary.checkin_id}.json", summary.model_dump())
 
-    def get_summary(self, patient_id: str, summary_date: str) -> ClinicalSummary | None:
-        data = self._read(f"{patient_id}/summaries/{summary_date}.json")
+    def get_summary(self, patient_id: str, checkin_id: str) -> ClinicalSummary | None:
+        data = self._read(f"{patient_id}/summaries/{checkin_id}.json")
         return ClinicalSummary.model_validate(data) if data else None

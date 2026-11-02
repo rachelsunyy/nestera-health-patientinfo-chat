@@ -38,8 +38,8 @@ def test_checkin_saves_and_reports_progress(db):
     agent.respond("Better")
     assert agent.progress == (1, total)
     run_checkin(agent)
-    saved = db.get_checkin("patient_001", date.today().isoformat())
-    assert saved is not None and len(saved.responses) == total
+    [saved] = db.get_checkins_for_date("patient_001", date.today().isoformat())
+    assert len(saved.responses) == total
 
 
 def test_healthy_checkin_is_routine_review(db):
@@ -58,7 +58,8 @@ def test_concerning_checkin_is_flagged_and_saved(db):
     run_checkin(agent, "Fine")
     summary = SummaryAgent("patient_001", db).generate()
     assert summary.recommended_action == "Schedule visit"
-    assert db.get_summary("patient_001", date.today().isoformat()) is not None
+    [checkin] = db.get_checkins_for_date("patient_001", date.today().isoformat())
+    assert db.get_summary("patient_001", checkin.id) == summary
     assert "Items Requiring Attention" in summary.summary_markdown
 
 

@@ -4,7 +4,7 @@ Usage:
   python cli.py load-patient --file sample_data/patient_001.json
   python cli.py add-questions --patient patient_001 --questions "How is your cough?" "Any fever?"
   python cli.py checkin --patient patient_001
-  python cli.py summary --patient patient_001
+  python cli.py summary --patient patient_001 [--checkin <checkin id>]
   python cli.py list-patients
 """
 
@@ -88,19 +88,19 @@ def cmd_checkin(args):
 
 
 def cmd_summary(args):
-    _run_summary(args.patient, getattr(args, "date", None))
+    _run_summary(args.patient, args.checkin)
 
 
-def _run_summary(patient_id: str, checkin_date: str | None = None):
+def _run_summary(patient_id: str, checkin_id: str | None = None):
     console.print("\n[dim]Generating clinical summary...[/dim]")
     try:
         record = db.get_patient(patient_id)
-        summary = SummaryAgent(patient_id, db).generate(checkin_date)
+        summary = SummaryAgent(patient_id, db).generate(checkin_id)
     except (FileNotFoundError, ValueError) as e:
         console.print(f"[red]{e}[/red]"); return
 
     console.print(Panel(
-        f"[bold]Clinical Summary — {summary.date}[/bold]\n"
+        f"[bold]Clinical Summary — {summary.date}[/bold]  [dim]check-in {summary.checkin_id}[/dim]\n"
         f"Patient: {record.name}\n"
         f"Action: [bold yellow]{summary.recommended_action}[/bold yellow]",
         border_style="magenta",
@@ -128,7 +128,7 @@ def main():
 
     p = sub.add_parser("summary")
     p.add_argument("--patient", required=True)
-    p.add_argument("--date", default=None)
+    p.add_argument("--checkin", default=None, help="check-in id; defaults to today's latest")
 
     args = parser.parse_args()
     {

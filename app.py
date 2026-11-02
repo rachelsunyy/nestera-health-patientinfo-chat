@@ -12,8 +12,8 @@ Endpoints:
   POST /session/respond/{session_id}           — patient sends a message
   GET  /session/{session_id}/status            — see session progress
 
-  POST /summary/{patient_id}                   — generate today's clinical summary
-  GET  /summary/{patient_id}                   — retrieve today's summary
+  POST /summary/{patient_id}                   — generate the summary of today's latest check-in
+  GET  /summary/{patient_id}                   — retrieve it (or ?checkin_id= for a specific check-in)
   GET  /trend/{patient_id}                     — trajectory across recent check-ins
 
 Run locally:
@@ -34,7 +34,7 @@ from pydantic import BaseModel
 
 from config import DATA_DIR
 from data.models import PatientRecord, DoctorQuestions, ClinicalSummary
-from database.patient_db import MockPatientDatabase, GCSPatientDatabase, FirestorePatientDatabase
+from database.patient_db import MockPatientDatabase, GCSPatientDatabase
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
 from agents.trends import assess_trend, WINDOW
@@ -43,10 +43,7 @@ from agents.trends import assess_trend, WINDOW
 # ── Database selection ─────────────────────────────────────────────────────
 # Local dev:   no env vars → MockPatientDatabase (JSON files on disk)
 # Cloud Run:   set GCS_BUCKET=hah-agent-data → GCSPatientDatabase
-#              set USE_FIRESTORE=true + GCP_PROJECT=... → FirestorePatientDatabase
-if os.getenv("USE_FIRESTORE", "false").lower() == "true":
-    db = FirestorePatientDatabase(project_id=os.environ["GCP_PROJECT"])
-elif os.getenv("GCS_BUCKET"):
+if os.getenv("GCS_BUCKET"):
     db = GCSPatientDatabase(bucket_name=os.environ["GCS_BUCKET"])
 else:
     db = MockPatientDatabase()
@@ -54,7 +51,7 @@ else:
 
 # ── In-memory session store ────────────────────────────────────────────────
 # Maps session_id → PatientAgent instance.
-# For production with multiple Cloud Run instances, replace with Firestore/Redis.
+# For production with multiple Cloud Run instances, replace with Redis or a shared store.
 _sessions: dict[str, PatientAgent] = {}
 
 
@@ -178,11 +175,16 @@ def generate_summary(patient_id: str):
     return summary
 
 @app.get("/summary/{patient_id}")
-def get_summary(patient_id: str, checkin_date: str | None = None):
-    d = checkin_date or date.today().isoformat()
-    summary = db.get_summary(patient_id, d)
+def get_summary(patient_id: str, checkin_id: str | None = None):
+    if checkin_id is None:
+        today = date.today().isoformat()
+        todays = db.get_checkins_for_date(patient_id, today)
+        if not todays:
+            raise HTTPException(404, f"No check-in for {patient_id} on {today}")
+        checkin_id = todays[-1].id
+    summary = db.get_summary(patient_id, checkin_id)
     if summary is None:
-        raise HTTPException(404, f"No summary for {patient_id} on {d}")
+        raise HTTPException(404, f"No summary for {patient_id} check-in {checkin_id}")
     return summary
 
 
@@ -199,7 +201,7 @@ def get_trend(patient_id: str):
         "status": report.status,
         "reasons": report.reasons,
         "points": [
-            {"date": p.date, "action": p.action, "vitals": p.vitals, "worse": p.worse, "better": p.better}
+            {"date": p.date, "label": p.label, "action": p.action, "vitals": p.vitals, "worse": p.worse, "better": p.better}
             for p in report.points
         ],
     }

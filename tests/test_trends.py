@@ -1,4 +1,4 @@
-"""Longitudinal trend tracking across days."""
+"""Longitudinal trend tracking across check-ins."""
 
 import pytest
 
@@ -15,6 +15,11 @@ COUGH = "How is your cough today — better, worse, or the same as yesterday?"
 
 def day(d, *pairs, pid="patient_001"):
     return DailyCheckIn(patient_id=pid, date=d,
+                        responses=[CheckInResponse(question=q, answer=a) for q, a in pairs])
+
+
+def at(timestamp, *pairs):
+    return DailyCheckIn(patient_id="patient_001", date=timestamp[:10], timestamp=timestamp,
                         responses=[CheckInResponse(question=q, answer=a) for q, a in pairs])
 
 
@@ -99,6 +104,19 @@ def test_checkins_are_ordered_by_date_not_by_input_order():
     assert report.points[-1].date == "2026-10-03" and report.status == WORSENING
 
 
+def test_two_checkins_on_one_day_are_two_points():
+    report = assess_trend([at("2026-10-02T19:30:00", (SPO2, "95")), at("2026-10-01T09:00:00", (SPO2, "98")),
+                           at("2026-10-02T08:15:00", (SPO2, "97"))])
+    assert [p.label for p in report.points] == ["2026-10-01", "2026-10-02 08:15", "2026-10-02 19:30"]
+    assert report.status == WORSENING
+    assert any("98% → 97% → 95%" in r for r in report.reasons)
+
+
+def test_same_minute_checkins_still_get_distinct_labels():
+    report = assess_trend([at("2026-10-02T08:15:05", (SPO2, "97")), at("2026-10-02T08:15:40", (SPO2, "97"))])
+    assert [p.label for p in report.points] == ["2026-10-02 08:15:05", "2026-10-02 08:15:40"]
+
+
 def test_a_missing_reading_today_does_not_invent_a_trend():
     report = assess_trend([day("2026-10-01", (SPO2, "98")), day("2026-10-02", (SPO2, "I didn't check"))])
     assert report.status == STABLE
@@ -107,9 +125,10 @@ def test_a_missing_reading_today_does_not_invent_a_trend():
 # ── integration with the clinical note ────────────────────────────────────
 
 def test_worsening_trend_raises_a_routine_day_and_lands_in_the_note(db):
-    for d, v in (("2026-10-01", "98"), ("2026-10-02", "97"), ("2026-10-03", "95")):
-        db.save_checkin(day(d, (SPO2, v)))
-    summary = SummaryAgent("patient_001", db).generate("2026-10-03")
+    checkins = [day(d, (SPO2, v)) for d, v in (("2026-10-01", "98"), ("2026-10-02", "97"), ("2026-10-03", "95"))]
+    for c in checkins:
+        db.save_checkin(c)
+    summary = SummaryAgent("patient_001", db).generate(checkins[-1].id)
     assert summary.trend_status == WORSENING
     assert summary.recommended_action == "Schedule visit"
     assert any(f.startswith("Worsening trend:") for f in summary.flagged_items)
@@ -117,13 +136,24 @@ def test_worsening_trend_raises_a_routine_day_and_lands_in_the_note(db):
 
 
 def test_regenerating_an_old_summary_ignores_later_checkins(db):
-    for d, v in (("2026-10-01", "98"), ("2026-10-02", "97"), ("2026-10-03", "88")):
-        db.save_checkin(day(d, (SPO2, v)))
-    assert SummaryAgent("patient_001", db).generate("2026-10-02").trend_status == STABLE
+    checkins = [day(d, (SPO2, v)) for d, v in (("2026-10-01", "98"), ("2026-10-02", "97"), ("2026-10-03", "88"))]
+    for c in checkins:
+        db.save_checkin(c)
+    assert SummaryAgent("patient_001", db).generate(checkins[1].id).trend_status == STABLE
+
+
+def test_a_morning_summary_ignores_the_same_evening_checkin(db):
+    checkins = [at("2026-10-01T09:00:00", (SPO2, "98")), at("2026-10-02T08:00:00", (SPO2, "97")),
+                at("2026-10-02T20:00:00", (SPO2, "88"))]
+    for c in checkins:
+        db.save_checkin(c)
+    assert SummaryAgent("patient_001", db).generate(checkins[1].id).trend_status == STABLE
+    assert SummaryAgent("patient_001", db).generate(checkins[2].id).trend_status == WORSENING
 
 
 def test_a_first_checkin_has_no_trend_section(db):
-    db.save_checkin(day("2026-10-01", (SPO2, "96")))
-    summary = SummaryAgent("patient_001", db).generate("2026-10-01")
+    checkin = day("2026-10-01", (SPO2, "96"))
+    db.save_checkin(checkin)
+    summary = SummaryAgent("patient_001", db).generate(checkin.id)
     assert summary.trend_status == INSUFFICIENT and "Trend over" not in summary.summary_markdown
     assert summary.recommended_action == "Routine review"

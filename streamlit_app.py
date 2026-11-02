@@ -98,6 +98,10 @@ def show_summary(summary) -> None:
     st.caption(f"Note generated: {generated}")
 
 
+def checkin_time(checkin) -> str:
+    return datetime.fromisoformat(checkin.timestamp).strftime("%-I:%M %p")
+
+
 # ── Sidebar ────────────────────────────────────────────────────────────────
 with st.sidebar:
     ui_theme.brand_header()
@@ -211,13 +215,15 @@ else:
         rows = []
         for pid in patient_ids:
             rec = db.get_patient(pid)
-            done = db.get_checkin(pid, today) is not None
-            summ = db.get_summary(pid, today) if done else None
+            todays = db.get_checkins_for_date(pid, today)
+            done = bool(todays)
+            summ = db.get_summary(pid, todays[-1].id) if done else None
             rows.append({
                 "id": pid,
                 "name": rec.name,
                 "diagnosis": rec.primary_diagnosis,
-                "status_html": ui_theme.chip("Completed" if done else "Not started", "green" if done else "gray"),
+                "status_html": ui_theme.chip("Completed" if done else "Not started", "green" if done else "gray")
+                + (f'<div class="nh-sub">{len(todays)} check-ins today</div>' if len(todays) > 1 else ""),
                 "action_html": (
                     ui_theme.chip(summ.recommended_action, ui_theme.action_tone(summ.recommended_action))
                     if summ else '<span style="color:#7A8794">—</span>'
@@ -256,40 +262,37 @@ else:
             st.info("Register a patient first (use the 'Register Patient' tab).")
         else:
             today = date.today().isoformat()
-            existing = db.get_summary(selected_id, today)
-            checkin_today = db.get_checkin(selected_id, today)
-            if existing and checkin_today and checkin_today.timestamp > existing.generated_at:
-                existing = None  # check-in was redone after the note was written
-
-            if existing:
-                show_summary(existing)
-            else:
-                checkin = checkin_today
-                if checkin:
-                    # Check-in exists but summary hasn't been generated yet
+            todays = db.get_checkins_for_date(selected_id, today)
+            if todays:
+                latest = todays[-1]
+                if len(todays) > 1:
+                    st.caption(f"{len(todays)} check-ins today. Showing the latest, from {checkin_time(latest)}.")
+                existing = db.get_summary(selected_id, latest.id)
+                if existing:
+                    show_summary(existing)
+                else:
                     st.info("Check-in completed. Generating clinical note…")
                     try:
-                        summary = SummaryAgent(selected_id, db).generate()
-                        show_summary(summary)
+                        show_summary(SummaryAgent(selected_id, db).generate(latest.id))
                     except Exception as e:
                         st.error(f"Could not generate summary: {e}")
-                else:
-                    st.info(
-                        f"**{record.name}** has not completed today's check-in yet ({today}). "
-                        "The summary will appear here automatically once they finish."
-                    )
+            else:
+                st.info(
+                    f"**{record.name}** has not completed today's check-in yet ({today}). "
+                    "The summary will appear here automatically once they finish."
+                )
 
             # Show recent check-in history
             history = db.get_recent_checkins(selected_id, n=5)
             if history:
                 with st.expander("View recent check-in responses"):
                     for ci in history:
-                        st.markdown(f"**{ci.date}**")
+                        st.markdown(f"**{ci.date} at {checkin_time(ci)}**")
                         for r in ci.responses:
                             st.markdown(f"- **Q:** {r.question}  \n  **A:** {r.answer}")
                         st.divider()
 
-    # ── Trends across days ─────────────────────────────────────────────────
+    # ── Trends across check-ins ──────────────────────────────────────────
     with tab_trends:
         if not has_patients:
             st.info("Register a patient first.")
@@ -305,7 +308,7 @@ else:
                 st.markdown(f"- {reason}")
             if len(report.points) >= 2:
                 chart = pd.DataFrame(
-                    {VITAL_LABELS[k]: {p.date: p.vitals[k] for p in report.points if k in p.vitals}
+                    {VITAL_LABELS[k]: {p.label: p.vitals[k] for p in report.points if k in p.vitals}
                      for k in VITAL_LABELS if any(k in p.vitals for p in report.points)}
                 )
                 for col in chart.columns:

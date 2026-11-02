@@ -1,0 +1,188 @@
+"""The demo seed script: scenario outcomes, idempotence, and isolation from non-demo data."""
+
+import json
+import re
+from datetime import date, datetime
+from pathlib import Path
+
+from streamlit.testing.v1 import AppTest
+
+from agents.patient_agent import PatientAgent
+from scripts import seed_demo
+
+NOW = datetime.now().replace(hour=15, minute=0)
+
+# patient: (check-ins, today, latest action, trend)
+EXPECTED = {
+    "demo_pneumonia": (5, 1, "Escalate", "Worsening"),
+    "demo_heartfailure": (4, 1, "Routine review", "Stable"),
+    "demo_diabetes": (5, 1, "Routine review", "Improving"),
+    "demo_copd": (3, 0, "Routine review", "Stable"),
+    "demo_twice": (3, 2, "Schedule visit", "Worsening"),
+    "demo_live": (2, 0, "Routine review", "Stable"),
+}
+
+
+def snapshot(data_dir: Path) -> dict[str, object]:
+    """Every file under data_dir; summaries without their generation time, which is always 'now'."""
+    files = {}
+    for f in sorted(data_dir.rglob("*.json")):
+        data = json.loads(f.read_text())
+        if f.parent.name == "summaries":
+            data.pop("generated_at")
+        files[str(f.relative_to(data_dir))] = data
+    return files
+
+
+def test_each_scenario_gets_its_expected_action_and_trend(db, tmp_path):
+    rows = seed_demo.seed(tmp_path, now=NOW)
+    got = {r["patient"]: (r["check-ins"], r["today"], r["latest action"], r["trend"]) for r in rows}
+    assert got == EXPECTED
+
+
+def test_pneumonia_trend_raises_yesterday_before_any_threshold_is_crossed(db, tmp_path):
+    seed_demo.seed(tmp_path, now=NOW)
+    yesterday = db.get_recent_checkins("demo_pneumonia", n=2)[1]
+    summary = db.get_summary("demo_pneumonia", yesterday.id)
+    assert summary.recommended_action == "Schedule visit"
+    assert [f.split(":")[0] for f in summary.flagged_items] == ["Worsening trend"]
+
+
+def test_rerun_converges_and_reset_removes_stray_demo_patients(db, tmp_path):
+    seed_demo.seed(tmp_path, now=NOW)
+    first = snapshot(tmp_path)
+
+    live = PatientAgent("demo_live", db)
+    live.start_session()
+    done = False
+    while not done:
+        _, done = live.respond("Fine")
+    (tmp_path / "demo_retired").mkdir()
+
+    seed_demo.seed(tmp_path, now=NOW)
+    assert (tmp_path / "demo_retired").is_dir()
+    assert snapshot(tmp_path) == first
+
+    seed_demo.seed(tmp_path, reset=True, now=NOW)
+    assert not (tmp_path / "demo_retired").exists()
+    assert snapshot(tmp_path) == first
+
+
+def test_non_demo_patients_are_untouched(db, tmp_path):
+    agent = PatientAgent("patient_001", db)
+    agent.start_session()
+    done = False
+    while not done:
+        _, done = agent.respond("Fine")
+    (tmp_path / "demonstration").mkdir()
+    before = snapshot(tmp_path)
+
+    seed_demo.seed(tmp_path, reset=True, now=NOW)
+
+    after = {k: v for k, v in snapshot(tmp_path).items() if not k.startswith("demo_")}
+    assert after == before
+    assert (tmp_path / "demonstration").is_dir()
+
+
+def test_cli_prints_the_summary_table(db, tmp_path, capsys):
+    seed_demo.main(["--data-dir", str(tmp_path), "--reset"])
+    out = capsys.readouterr().out
+    assert "demo_pneumonia     Walter Briggs   5          1      Escalate        Worsening" in out
+
+
+ROOT = Path(__file__).parent.parent
+LIVE_ANSWERS = ["151 pounds, up one pound from yesterday.", "No new swelling.", "Comfortable when I sit still.",
+                "It was 89.", "Yes, I took both this morning.", "About a 6.", "No falls, I feel safe at home.",
+                "No, that's all."]
+DOCTOR_QUESTION = "Did you feel lightheaded when you stood up today?"
+SECOND_ANSWERS = ["No, not today.", "151 pounds.", "No new swelling.", "Comfortable when I sit still.", "93 now.",
+                  "Yes.", "About a 6.", "No falls, I feel safe at home.", "No, that's all."]
+
+
+def html(at, marker: str) -> str:
+    return next(m.value for m in at.markdown if marker in m.value)
+
+
+def roster_cells(at, pid: str) -> list[str]:
+    table = html(at, '<table class="nh-table">')
+    row = next(r for r in re.findall(r"<tr>(.*?)</tr>", table) if f">{pid}<" in r)
+    return [t.strip() for t in re.split(r"<[^>]+>", row) if t.strip()]
+
+
+def kpis(at) -> str:
+    return " ".join(re.sub(r"<[^>]+>", " ", html(at, '<div class="nh-kpis">')).split())
+
+
+def bullets(at) -> list[str]:
+    return [m.value[2:] for m in at.markdown if m.value.startswith("- ")]
+
+
+def open_doctor(at, pid: str) -> None:
+    at.sidebar.radio[0].set_value("Doctor / Nurse").run()
+    at.sidebar.selectbox[0].set_value(pid).run()
+    assert not at.exception
+
+
+def check_in(at, answers: list[str]) -> str:
+    at.sidebar.radio[0].set_value("Patient").run()
+    at.sidebar.selectbox[0].set_value("demo_live").run()
+    for button in at.button:
+        if button.label == "Start a new check-in":
+            button.click().run()
+    opening = at.chat_message[0].markdown[0].value
+    for answer in answers:
+        at.chat_input[0].set_value(answer).run()
+        assert not at.exception
+    assert any("Check-in complete!" in s.value for s in at.success)
+    return opening
+
+
+def test_demo_walkthrough_matches_the_screen(db, tmp_path):
+    demo_md = (ROOT / "DEMO.md").read_text()
+    for text in [*LIVE_ANSWERS, DOCTOR_QUESTION, *SECOND_ANSWERS]:
+        assert f"`{text}`" in demo_md, f"DEMO.md no longer tells presenters to type {text!r}"
+    seed_demo.seed(tmp_path)
+    at = AppTest.from_file(str(ROOT / "streamlit_app.py"), default_timeout=60).run()
+
+    open_doctor(at, "demo_pneumonia")
+    assert kpis(at) == "Patients 9 Check-ins complete 4 / 9 Need attention 2"
+    assert roster_cells(at, "demo_live")[-2:] == ["Not started", "—"]
+    assert roster_cells(at, "demo_copd")[-2:] == ["Not started", "—"]
+    assert roster_cells(at, "demo_pneumonia")[-2:] == ["Completed", "Escalate"]
+    assert roster_cells(at, "demo_twice")[-3:] == ["Completed", "2 check-ins today", "Schedule visit"]
+    assert any('nh-chip red">Worsening' in m.value for m in at.markdown)
+    assert "Oxygen saturation moving outside the normal range: 97% → 96% → 95% → 93% → 89%" in bullets(at)
+
+    open_doctor(at, "demo_diabetes")
+    assert "Blood sugar returning toward normal: 310 mg/dL → 265 mg/dL → 220 mg/dL → 175 mg/dL → 142 mg/dL" in bullets(at)
+    open_doctor(at, "demo_twice")
+    assert at.caption[0].value.startswith("2 check-ins today. Showing the latest, from ")
+
+    opening = check_in(at, LIVE_ANSWERS)
+    assert "I'll ask you 8 questions" in opening
+    assert any("call <b>911</b>" in m.value for m in at.markdown)
+
+    open_doctor(at, "demo_live")
+    assert kpis(at) == "Patients 9 Check-ins complete 5 / 9 Need attention 3"
+    assert roster_cells(at, "demo_live")[-2:] == ["Completed", "Escalate"]
+    flags = [b for b in bullets(at) if not b.startswith("**Q:**")][:2]
+    assert flags == [
+        'Low oxygen saturation: 89% (below 90%) — patient said "It was 89."',
+        "Worsening trend: Oxygen saturation moving outside the normal range: 96% → 96% → 89%; "
+        "Recommended action rose to Escalate (previously at most Routine review)",
+    ]
+
+    at.text_input[0].set_value("Dr. Rivera")
+    at.text_area[0].set_value(DOCTOR_QUESTION)
+    next(b for b in at.button if b.label == "Save questions").click().run()
+    assert any(s.value.endswith("1 question(s) saved for Grace Thompson.") for s in at.success)
+
+    opening = check_in(at, SECOND_ANSWERS)
+    assert "I'll ask you 9 questions" in opening and opening.endswith(DOCTOR_QUESTION)
+
+    open_doctor(at, "demo_live")
+    assert roster_cells(at, "demo_live")[-3:] == ["Completed", "2 check-ins today", "Schedule visit"]
+    assert at.caption[0].value.startswith("2 check-ins today. Showing the latest, from ")
+    assert bullets(at)[0] == "Worsening trend: Oxygen saturation drifting the wrong way: 96% → 96% → 89% → 93%"
+    today = date.today().isoformat()
+    assert sum(m.value.startswith(f"**{today} at ") for m in at.markdown) == 2
