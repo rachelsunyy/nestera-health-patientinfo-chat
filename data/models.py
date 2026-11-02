@@ -3,7 +3,7 @@
 from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Medication(BaseModel):
@@ -48,18 +48,34 @@ class DoctorQuestions(BaseModel):
 
 class DailyCheckIn(BaseModel):
     patient_id: str
+    id: str = ""                   # storage key; several check-ins can share a date
     date: str = Field(default_factory=lambda: date.today().isoformat())
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
     responses: list[CheckInResponse] = []
     free_text_concerns: str = ""   # anything the patient mentioned outside structured Qs
 
+    @model_validator(mode="after")
+    def _default_id(self) -> DailyCheckIn:
+        # Date plus wall-clock time, filesystem safe, so sorting ids sorts check-ins chronologically.
+        # Legacy records stored as <date>.json get id == date from the database layer, which sorts first.
+        if not self.id:
+            self.id = f"{self.date}T{self.timestamp.partition('T')[2].replace(':', '-')}"
+        return self
+
 
 class ClinicalSummary(BaseModel):
     patient_id: str
     date: str
+    checkin_id: str = ""           # the check-in this note describes; legacy notes default to their date
     generated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     summary_markdown: str          # Full Markdown summary for the care team
     flagged_items: list[str] = []  # Short list of items warranting clinician attention
     recommended_action: str = ""   # "routine review" | "schedule visit" | "escalate"
     ai_models: list[str] = []      # models that contributed (empty = rules only); kept for audit
     trend_status: str = ""         # "Worsening" | "Improving" | "Stable" | "Not enough data" (see agents/trends.py)
+
+    @model_validator(mode="after")
+    def _default_checkin_id(self) -> ClinicalSummary:
+        if not self.checkin_id:
+            self.checkin_id = self.date
+        return self

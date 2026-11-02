@@ -107,9 +107,10 @@ def test_a_missing_reading_today_does_not_invent_a_trend():
 # ── integration with the clinical note ────────────────────────────────────
 
 def test_worsening_trend_raises_a_routine_day_and_lands_in_the_note(db):
-    for d, v in (("2026-10-01", "98"), ("2026-10-02", "97"), ("2026-10-03", "95")):
-        db.save_checkin(day(d, (SPO2, v)))
-    summary = SummaryAgent("patient_001", db).generate("2026-10-03")
+    checkins = [day(d, (SPO2, v)) for d, v in (("2026-10-01", "98"), ("2026-10-02", "97"), ("2026-10-03", "95"))]
+    for c in checkins:
+        db.save_checkin(c)
+    summary = SummaryAgent("patient_001", db).generate(checkins[-1].id)
     assert summary.trend_status == WORSENING
     assert summary.recommended_action == "Schedule visit"
     assert any(f.startswith("Worsening trend:") for f in summary.flagged_items)
@@ -117,13 +118,15 @@ def test_worsening_trend_raises_a_routine_day_and_lands_in_the_note(db):
 
 
 def test_regenerating_an_old_summary_ignores_later_checkins(db):
-    for d, v in (("2026-10-01", "98"), ("2026-10-02", "97"), ("2026-10-03", "88")):
-        db.save_checkin(day(d, (SPO2, v)))
-    assert SummaryAgent("patient_001", db).generate("2026-10-02").trend_status == STABLE
+    checkins = [day(d, (SPO2, v)) for d, v in (("2026-10-01", "98"), ("2026-10-02", "97"), ("2026-10-03", "88"))]
+    for c in checkins:
+        db.save_checkin(c)
+    assert SummaryAgent("patient_001", db).generate(checkins[1].id).trend_status == STABLE
 
 
 def test_a_first_checkin_has_no_trend_section(db):
-    db.save_checkin(day("2026-10-01", (SPO2, "96")))
-    summary = SummaryAgent("patient_001", db).generate("2026-10-01")
+    checkin = day("2026-10-01", (SPO2, "96"))
+    db.save_checkin(checkin)
+    summary = SummaryAgent("patient_001", db).generate(checkin.id)
     assert summary.trend_status == INSUFFICIENT and "Trend over" not in summary.summary_markdown
     assert summary.recommended_action == "Routine review"

@@ -225,7 +225,7 @@ def test_check_in_only_ends_when_every_topic_is_covered(db):
         assert not done
     run_to_end(a)
     assert a.remaining == [] and a.progress[0] == a.progress[1]
-    saved = db.get_checkin("patient_001", date.today().isoformat())
+    [saved] = db.get_checkins_for_date("patient_001", date.today().isoformat())
     assert {r.topic for r in saved.responses} >= {t.kind for t in a.topics}
 
 
@@ -270,7 +270,7 @@ def test_model_flagged_emergency_ends_checkin_with_fixed_message_and_escalates(d
     reply, done = a.respond("I can't catch my breath at all and my lips look blue")
     assert done and a.ended_early and "call 911" in reply and "(312) 555-0199" in reply
     assert "immediately!!" not in reply
-    saved = db.get_checkin("patient_001", date.today().isoformat())
+    [saved] = db.get_checkins_for_date("patient_001", date.today().isoformat())
     assert saved.responses[-1].question == EMERGENCY_MARKER
     assert SummaryAgent("patient_001", db, AIAssist(None)).generate().recommended_action == "Escalate"
 
