@@ -1,0 +1,36 @@
+# Keep secrets, local data and bulk out of the image. Mirrored in .gcloudignore.
+# The app reads at runtime: *.py packages, assets/, sample_data/, .streamlit/config.toml.
+
+# Secrets
+**/.env
+**/*.env
+**/.env.*
+
+# Local and third-party data
+patient_data/
+external_data/
+
+# Tooling, VCS and caches
+.git/
+.gitignore
+.gcloudignore
+.dockerignore
+.claude/
+.venv/
+venv/
+.vscode/
+.idea/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.pytest_cache/
+**/.DS_Store
+
+# Not used by the running app
+tests/
+evals/
+requirements-dev.txt
+pytest.ini
+*.md
+cloudbuild.yaml
+Dockerfile

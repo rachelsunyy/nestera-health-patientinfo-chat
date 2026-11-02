@@ -29,19 +29,32 @@ As soon as the patient finishes, a clinical note is automatically generated from
 
 ### Deploy to Cloud Run
 
-```bash
-# Build the Docker image
-gcloud builds submit --project=nestera-health
+[DEPLOY.md](DEPLOY.md) has the full steps: checking the project, one-time setup, build, deploy flags, seeding the bucket, verifying, rollback and teardown. The short version, after that setup:
 
-# Deploy
+```bash
+# Build the image (tagged latest and with the build id)
+gcloud builds submit --project=nestera-health --config cloudbuild.yaml .
+
+# Deploy, private by default (see DEPLOY.md for every flag)
 gcloud run deploy hah-agent-ui \
   --image us-central1-docker.pkg.dev/nestera-health/hah-agent/app:latest \
   --region us-central1 \
   --project=nestera-health \
+  --no-allow-unauthenticated \
+  --service-account=hah-agent-run@nestera-health.iam.gserviceaccount.com \
+  --min-instances=1 --max-instances=1 --session-affinity --timeout=3600 \
+  --memory=1Gi --cpu=1 \
   --set-env-vars GCS_BUCKET=nestera-health-hah-agent
+
+# Seed the bucket with the demo patients (repeat on demo day)
+TZ=UTC python scripts/seed_demo.py --gcs-bucket nestera-health-hah-agent --reset
 ```
 
+The image installs the pinned versions in `requirements.lock`, not the ranges in `requirements.txt`. After editing `requirements.txt`, regenerate the lock and re-run the tests against it, as described in DEPLOY.md under "Refreshing the lock".
+
 ### Access the app
+
+The service is private. The clinician page has no login, so only people granted `roles/run.invoker` can reach it, and they do so through the proxy.
 
 ```bash
 gcloud run services proxy hah-agent-ui \
@@ -50,7 +63,7 @@ gcloud run services proxy hah-agent-ui \
   --port=8082
 ```
 
-Then open Web Preview on port 8082 in Cloud Shell, or visit the service URL directly if public access has been enabled.
+Then open http://localhost:8082/patient and http://localhost:8082/clinician. In Cloud Shell, use Web Preview on port 8082 and add `/patient` or `/clinician` to the preview URL. Opening the `run.app` URL directly in a browser returns 403. DEPLOY.md explains how to grant access and when a public URL is acceptable.
 
 ### Run locally
 
@@ -273,7 +286,8 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 ├── config.py                 # Paths and settings
 ├── Dockerfile                # Container definition for Cloud Run
 ├── cloudbuild.yaml           # Google Cloud Build configuration
-├── requirements.txt          # Runtime dependencies
+├── requirements.txt          # Runtime dependencies (edit this one)
+├── requirements.lock         # Exact versions the image installs, generated from requirements.txt
 └── requirements-dev.txt      # Adds pytest
 ```
 

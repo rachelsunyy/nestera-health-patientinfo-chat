@@ -202,6 +202,11 @@ class GCSPatientDatabase(PatientDatabase):
     def save_patient(self, record: PatientRecord) -> None:
         self._write(record.patient_id, "record.json", record.model_dump())
 
+    def delete_patient(self, patient_id: str) -> None:
+        """Remove every object stored under one patient: record, questions, check-ins, summaries."""
+        for blob in self._client.list_blobs(self._bucket, prefix=self._key(patient_id, "")):
+            blob.delete()
+
     def list_patient_ids(self) -> list[str]:
         seen, ids = set(), []
         for blob in self._client.list_blobs(self._bucket, prefix="patients/"):
