@@ -8,49 +8,17 @@ import pytest
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
 from data.models import CheckInResponse, DailyCheckIn
-from database.patient_db import GCSPatientDatabase
 
 SPO2 = "Did you measure your oxygen level (SpO2) today? If yes, what was the reading?"
 
 
-class FakeBucket:
-    """The slice of google.cloud.storage that GCSPatientDatabase uses, backed by a dict."""
-
-    def __init__(self):
-        self.blobs: dict[str, str] = {}
-
-    def blob(self, name):
-        bucket = self
-
-        class Blob:
-            def __init__(self):
-                self.name = name
-
-            def exists(self):
-                return name in bucket.blobs
-
-            def download_as_text(self):
-                return bucket.blobs[name]
-
-            def upload_from_string(self, text, content_type=None):
-                bucket.blobs[name] = text
-
-        return Blob()
-
-    def list_blobs(self, _bucket, prefix):
-        return [self.blob(n) for n in self.blobs if n.startswith(prefix)]
-
-
 @pytest.fixture(params=["mock", "gcs"])
-def backend(request, db, tmp_path):
+def backend(request, db, tmp_path, gcs_db, fake_bucket):
     """(database, write_raw) where write_raw(path, dict) stores a file exactly as an older version left it."""
     if request.param == "mock":
         return db, lambda path, data: (tmp_path / path).write_text(json.dumps(data))
-    fake = FakeBucket()
-    gcs = GCSPatientDatabase.__new__(GCSPatientDatabase)
-    gcs._client, gcs._bucket = fake, fake
-    gcs.save_patient(db.get_patient("patient_001"))
-    return gcs, lambda path, data: fake.blobs.__setitem__(f"patients/{path}", json.dumps(data))
+    gcs_db.save_patient(db.get_patient("patient_001"))
+    return gcs_db, lambda path, data: fake_bucket.blobs.__setitem__(f"patients/{path}", json.dumps(data))
 
 
 def checkin(timestamp, spo2="97"):
