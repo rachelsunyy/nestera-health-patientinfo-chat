@@ -5,10 +5,10 @@ A conversational check-in chatbot for Hospital-At-Home programs. Patients comple
 ## How It Works
 
 **Patient side**
-The patient opens the app, selects their name, and the chatbot immediately starts asking 8–10 questions personalized to their conditions, medications, and monitoring parameters. No AI model is called — questions are built directly from the patient's medical record. The patient types answers in plain language and presses Enter after each one.
+The patient opens `/patient`, picks their name, and the chatbot immediately starts asking 8–10 questions personalized to their conditions, medications, and monitoring parameters. No AI model is called — questions are built directly from the patient's medical record. The patient types answers in plain language and presses Enter after each one.
 
 **Doctor / Nurse side**
-As soon as the patient finishes, a clinical note is automatically generated from their exact responses. The doctor opens the dashboard, selects the patient, and sees a structured note with all Q&A pairs, any flagged concerns (missed medications, worsening symptoms, etc.), and a recommended action: Routine review / Schedule visit / Escalate.
+As soon as the patient finishes, a clinical note is automatically generated from their exact responses. The doctor opens `/clinician`, clicks **Open** on the patient's row in the roster, and sees a structured note with all Q&A pairs, any flagged concerns (missed medications, worsening symptoms, etc.), and a recommended action: Routine review / Schedule visit / Escalate.
 
 ## Features
 
@@ -61,7 +61,12 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Then open http://localhost:8501. No environment variables are required for local development: the app stores data as JSON files in `patient_data/` (git-ignored) and loads the sample patients in `sample_data/` automatically. To use Google Cloud Storage instead, set `GCS_BUCKET`.
+Then open http://localhost:8501. The landing page offers two experiences, each at its own URL:
+
+- http://localhost:8501/patient is the patient check-in. It shows only what a patient sees. Add `?patient=<id>` to skip the name picker, as in `/patient?patient=patient_001`.
+- http://localhost:8501/clinician is the clinician dashboard: today's roster, then each patient's summary, trends and added questions. `?patient=<id>` opens that patient directly.
+
+No environment variables are required for local development: the app stores data as JSON files in `patient_data/` (git-ignored) and loads the sample patients in `sample_data/` automatically. To use Google Cloud Storage instead, set `GCS_BUCKET`.
 
 Each patient's folder (or `patients/<patient_id>/` in the bucket) holds `record.json`, `doctor_questions/<date>.json`, and one file per check-in in `checkins/` and `summaries/`, named by check-in id (date and time, such as `2026-11-01T17-30-05.123456.json`). Files from older versions named by date alone (`2026-10-29.json`) still load, with the date as their id.
 
@@ -86,7 +91,7 @@ pytest
 
 ## Patient Record Format
 
-Register a new patient by uploading a JSON file in the Doctor / Nurse → Register Patient tab.
+Register a new patient by uploading a JSON file under **Register a new patient**, below the roster on `/clinician`.
 
 ```json
 {
@@ -233,7 +238,12 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 
 ```
 .
-├── streamlit_app.py          # Main web interface (patient + clinician views)
+├── streamlit_app.py          # Web interface entry point: routes /, /patient and /clinician
+├── views/
+│   ├── landing.py            # / : choose the patient or the clinician experience
+│   ├── patient.py            # /patient : name picker, then the check-in chat
+│   ├── clinician.py          # /clinician : roster, then one patient's summary, trends and questions
+│   └── shared.py             # Database connection and patient names shared by the pages
 ├── ui_theme.py               # Branding, CSS and small HTML components for the UI
 ├── .streamlit/config.toml    # Streamlit theme
 ├── agents/
