@@ -1,0 +1,34 @@
+# What `gcloud builds submit` leaves out of the uploaded source. Mirrors .dockerignore.
+# Without this file gcloud falls back to .gitignore, which still uploads tests, evals and .claude.
+# Dockerfile and cloudbuild.yaml stay in: Cloud Build needs them.
+
+# Secrets
+.env
+*.env
+.env.*
+
+# Local and third-party data
+patient_data/
+external_data/
+
+# Tooling, VCS and caches
+.git/
+.gitignore
+.gcloudignore
+.claude/
+.venv/
+venv/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.DS_Store
+
+# Not used by the running app
+tests/
+evals/
+requirements-dev.txt
+pytest.ini
+*.md
