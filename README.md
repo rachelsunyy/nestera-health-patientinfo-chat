@@ -241,17 +241,17 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 │   ├── summary_agent.py      # Flags concerns and generates the clinical note
 │   └── vitals.py             # Numeric vital-sign thresholds
 ├── database/
-│   └── patient_db.py         # Mock (local JSON), GCS and Firestore backends
+│   └── patient_db.py         # Mock (local JSON) and GCS backends
 ├── data/
 │   ├── models.py             # Pydantic models (PatientRecord, DailyCheckIn, etc.)
-│   └── store.py              # Legacy JSON store, used only by main.py
+│   ├── synthea_import.py     # Synthea patient importer
+│   └── notechat_import.py    # NoteChat dialogue audit and labeling tool
 ├── sample_data/              # Demo patient JSON files
 ├── tests/                    # pytest suite
 ├── evals/                    # Labeled synthetic check-ins + triage evaluation runner
 ├── app.py                    # FastAPI REST API (alternative to the Streamlit UI)
 ├── cli.py                    # Terminal check-in (uses the same database layer as the app)
-├── main.py                   # Older CLI built on data/store.py
-├── models/, guardrails/      # LLM clients and advice filter from an earlier design (not used by the current flow)
+├── guardrails/safety.py      # Advice-wording check used by the conversational check-in
 ├── config.py                 # Paths and settings
 ├── Dockerfile                # Container definition for Cloud Run
 ├── cloudbuild.yaml           # Google Cloud Build configuration
@@ -270,7 +270,7 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 
 ## Important Notes
 
-- **By default no AI model is used.** The patient check-in is always deterministic. Clinician summaries can optionally be enhanced with Claude (see above); `models/` (Gemini, MedGemma) and `guardrails/` are older and not called by the current flow.
+- **By default no AI model is used.** The patient check-in is always deterministic. Clinician summaries can optionally be enhanced with Claude (see above).
 - **No real patient data should be committed to this repository.** The `patient_data/` directory and `.env` files are excluded via `.gitignore`.
 - The app has no authentication by default. Enable Google IAM or add a password layer before using with real patient data.
 - Only one check-in per patient per day is stored; completing a second one replaces the first.

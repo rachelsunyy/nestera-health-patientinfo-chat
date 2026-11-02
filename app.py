@@ -34,7 +34,7 @@ from pydantic import BaseModel
 
 from config import DATA_DIR
 from data.models import PatientRecord, DoctorQuestions, ClinicalSummary
-from database.patient_db import MockPatientDatabase, GCSPatientDatabase, FirestorePatientDatabase
+from database.patient_db import MockPatientDatabase, GCSPatientDatabase
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
 from agents.trends import assess_trend, WINDOW
@@ -43,10 +43,7 @@ from agents.trends import assess_trend, WINDOW
 # ── Database selection ─────────────────────────────────────────────────────
 # Local dev:   no env vars → MockPatientDatabase (JSON files on disk)
 # Cloud Run:   set GCS_BUCKET=hah-agent-data → GCSPatientDatabase
-#              set USE_FIRESTORE=true + GCP_PROJECT=... → FirestorePatientDatabase
-if os.getenv("USE_FIRESTORE", "false").lower() == "true":
-    db = FirestorePatientDatabase(project_id=os.environ["GCP_PROJECT"])
-elif os.getenv("GCS_BUCKET"):
+if os.getenv("GCS_BUCKET"):
     db = GCSPatientDatabase(bucket_name=os.environ["GCS_BUCKET"])
 else:
     db = MockPatientDatabase()
@@ -54,7 +51,7 @@ else:
 
 # ── In-memory session store ────────────────────────────────────────────────
 # Maps session_id → PatientAgent instance.
-# For production with multiple Cloud Run instances, replace with Firestore/Redis.
+# For production with multiple Cloud Run instances, replace with Redis or a shared store.
 _sessions: dict[str, PatientAgent] = {}
 
 

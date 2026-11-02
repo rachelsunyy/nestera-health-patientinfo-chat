@@ -2,19 +2,16 @@
 
 PatientDatabase defines the interface every backend must satisfy.
 MockPatientDatabase  — local JSON files (development/testing)
-GCSPatientDatabase   — Google Cloud Storage JSON files (production, no Firestore needed)
-FirestorePatientDatabase — Firestore (if available)
+GCSPatientDatabase   — Google Cloud Storage JSON files (production)
 
 To switch backends, change one line in app.py:
     db = MockPatientDatabase()
     db = GCSPatientDatabase("your-bucket-name")
-    db = FirestorePatientDatabase("your-project-id")
 """
 
 from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
-from datetime import date
 from pathlib import Path
 
 from data.models import (
@@ -141,83 +138,12 @@ class MockPatientDatabase(PatientDatabase):
         return ClinicalSummary.model_validate_json(path.read_text())
 
 
-# ── Firestore implementation (Google Cloud) ────────────────────────────────
-
-class FirestorePatientDatabase(PatientDatabase):
-    """Cloud Firestore backend for production on Google Cloud.
-
-    Collections:
-      patients/{patient_id}                         → PatientRecord
-      patients/{patient_id}/doctor_questions/{date} → DoctorQuestions
-      patients/{patient_id}/checkins/{date}         → DailyCheckIn
-      patients/{patient_id}/summaries/{date}        → ClinicalSummary
-
-    Install:  pip install google-cloud-firestore
-    Auth:     Application Default Credentials (automatic on Cloud Run)
-              or set GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json locally
-    """
-
-    def __init__(self, project_id: str) -> None:
-        from google.cloud import firestore
-        self._db = firestore.Client(project=project_id)
-
-    def _patients(self):
-        return self._db.collection("patients")
-
-    def get_patient(self, patient_id: str) -> PatientRecord:
-        doc = self._patients().document(patient_id).get()
-        if not doc.exists:
-            raise FileNotFoundError(f"No patient record found for ID '{patient_id}'")
-        return PatientRecord.model_validate(doc.to_dict())
-
-    def save_patient(self, record: PatientRecord) -> None:
-        self._patients().document(record.patient_id).set(record.model_dump())
-
-    def list_patient_ids(self) -> list[str]:
-        return [d.id for d in self._patients().stream()]
-
-    def get_doctor_questions(self, patient_id: str, for_date: str) -> list[str]:
-        doc = self._patients().document(patient_id)\
-                  .collection("doctor_questions").document(for_date).get()
-        if not doc.exists:
-            return []
-        return DoctorQuestions.model_validate(doc.to_dict()).questions
-
-    def save_doctor_questions(self, dq: DoctorQuestions) -> None:
-        self._patients().document(dq.patient_id)\
-            .collection("doctor_questions").document(dq.date).set(dq.model_dump())
-
-    def save_checkin(self, checkin: DailyCheckIn) -> None:
-        self._patients().document(checkin.patient_id)\
-            .collection("checkins").document(checkin.date).set(checkin.model_dump())
-
-    def get_checkin(self, patient_id: str, checkin_date: str) -> DailyCheckIn | None:
-        doc = self._patients().document(patient_id)\
-                  .collection("checkins").document(checkin_date).get()
-        return DailyCheckIn.model_validate(doc.to_dict()) if doc.exists else None
-
-    def get_recent_checkins(self, patient_id: str, n: int = 3) -> list[DailyCheckIn]:
-        docs = self._patients().document(patient_id)\
-                   .collection("checkins")\
-                   .order_by("date", direction="DESCENDING").limit(n).stream()
-        return [DailyCheckIn.model_validate(d.to_dict()) for d in docs]
-
-    def save_summary(self, summary: ClinicalSummary) -> None:
-        self._patients().document(summary.patient_id)\
-            .collection("summaries").document(summary.date).set(summary.model_dump())
-
-    def get_summary(self, patient_id: str, summary_date: str) -> ClinicalSummary | None:
-        doc = self._patients().document(patient_id)\
-                  .collection("summaries").document(summary_date).get()
-        return ClinicalSummary.model_validate(doc.to_dict()) if doc.exists else None
-
-
 # ── Google Cloud Storage implementation ────────────────────────────────────
 
 class GCSPatientDatabase(PatientDatabase):
     """Cloud Storage backend — stores JSON blobs in a GCS bucket.
 
-    No Firestore needed. Same file layout as MockPatientDatabase but in GCS:
+    Same file layout as MockPatientDatabase but in GCS:
       gs://<bucket>/patients/<patient_id>/record.json
       gs://<bucket>/patients/<patient_id>/doctor_questions/YYYY-MM-DD.json
       gs://<bucket>/patients/<patient_id>/checkins/YYYY-MM-DD.json
