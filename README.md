@@ -65,6 +65,9 @@ Then open http://localhost:8501. No environment variables are required for local
 
 Each patient's folder (or `patients/<patient_id>/` in the bucket) holds `record.json`, `doctor_questions/<date>.json`, and one file per check-in in `checkins/` and `summaries/`, named by check-in id (date and time, such as `2026-11-01T17-30-05.123456.json`). Files from older versions named by date alone (`2026-10-29.json`) still load, with the date as their id.
 
+**Sponsor demo.** `DEMO.md` is a 10 to 12 minute walkthrough script with the exact answers to type, safety talking points and known limits.
+`python scripts/seed_demo.py --reset` loads its synthetic `demo_` patients through the real check-in and summary code; it never touches other patients.
+
 Other entry points (all use the same agents and database layer):
 
 ```bash
@@ -249,8 +252,11 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 │   ├── synthea_import.py     # Synthea patient importer
 │   └── notechat_import.py    # NoteChat dialogue audit and labeling tool
 ├── sample_data/              # Demo patient JSON files
+├── scripts/
+│   └── seed_demo.py          # Seeds synthetic demo_ patients for DEMO.md
 ├── tests/                    # pytest suite
 ├── evals/                    # Labeled synthetic check-ins + triage evaluation runner
+├── DEMO.md                   # Sponsor demo script
 ├── app.py                    # FastAPI REST API (alternative to the Streamlit UI)
 ├── cli.py                    # Terminal check-in (uses the same database layer as the app)
 ├── guardrails/safety.py      # Advice-wording check used by the conversational check-in
