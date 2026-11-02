@@ -16,7 +16,7 @@ As soon as the patient finishes, a clinical note is automatically generated from
 - Doctor-specified questions added per patient per day (shown first in the check-in)
 - Clinical summary derived entirely from patient responses — no hallucinations, no fabrication
 - Automatic flagging of concerning answers: keyword matching with negation ("no falls" is not flagged) plus numeric checks on reported vitals (SpO2, temperature, blood pressure, blood glucose, breathing rate)
-- Trend tracking across days: each check-in is compared with earlier ones and labelled Improving / Stable / Worsening, with reasons
+- Trend tracking across check-ins: each check-in is compared with earlier ones and labelled Improving / Stable / Worsening, with reasons
 - Clinician dashboard with a today's-check-ins overview, status chips and recommended action per patient
 - Register new patients by uploading a JSON file
 - All data stored persistently in Google Cloud Storage
@@ -63,12 +63,14 @@ streamlit run streamlit_app.py
 
 Then open http://localhost:8501. No environment variables are required for local development: the app stores data as JSON files in `patient_data/` (git-ignored) and loads the sample patients in `sample_data/` automatically. To use Google Cloud Storage instead, set `GCS_BUCKET`.
 
+Each patient's folder (or `patients/<patient_id>/` in the bucket) holds `record.json`, `doctor_questions/<date>.json`, and one file per check-in in `checkins/` and `summaries/`, named by check-in id (date and time, such as `2026-11-01T17-30-05.123456.json`). Files from older versions named by date alone (`2026-10-29.json`) still load, with the date as their id.
+
 Other entry points (all use the same agents and database layer):
 
 ```bash
 python cli.py list-patients                      # terminal version of the check-in
 python cli.py checkin --patient patient_001
-python cli.py summary --patient patient_001
+python cli.py summary --patient patient_001        # today's latest check-in; --checkin <id> for another
 uvicorn app:app --reload --port 8080             # REST API (see docstring in app.py)
 ```
 
@@ -119,15 +121,15 @@ The chatbot generates more specific questions when `conditions`, `medications`, 
 
 > The thresholds in `agents/vitals.py` are general-purpose **demo values**. They must be reviewed by the clinical team before any real use and ideally made patient-specific (for example, a COPD patient's normal SpO2 is lower).
 
-## Trend tracking across days
+## Trend tracking across check-ins
 
-`agents/trends.py` (no AI, no extra data collected) compares the latest check-in with up to four earlier ones and labels the patient **Worsening**, **Improving**, **Stable**, or **Not enough data** (fewer than two check-ins). Each label comes with reasons the clinician can verify against the raw answers.
+`agents/trends.py` (no AI, no extra data collected) compares the latest check-in with up to four earlier ones (two check-ins on the same day count separately) and labels the patient **Worsening**, **Improving**, **Stable**, or **Not enough data** (fewer than two check-ins). Each label comes with reasons the clinician can verify against the raw answers.
 
 - **Vital readings** (SpO2, temperature, systolic BP, blood sugar, breathing rate) are compared with the earlier readings: moving further outside a normal band, or a slow drift the wrong way inside it (for example SpO2 98 → 97 → 95), counts as worsening; moving back toward normal counts as improving.
 - **Symptom reports**: answers saying "worse" (negation-aware: "not worse" doesn't count; "not better" does) on two of the last three check-ins, or more worse reports than last time.
 - **Recommended action** rising above anything seen earlier in the window.
 
-A worsening trend adds a flagged item and raises a *Routine review* day to *Schedule visit*; it never lowers an action. The result appears in the clinical note, on the dashboard's **Trends** tab (with charts), and at `GET /trend/{patient_id}`.
+A worsening trend adds a flagged item and raises a *Routine review* check-in to *Schedule visit*; it never lowers an action. The result appears in the clinical note, on the dashboard's **Trends** tab (with charts), and at `GET /trend/{patient_id}`.
 
 > The normal bands and margins at the top of `agents/trends.py` are prototype values and need clinical review, like the thresholds in `agents/vitals.py`. Only readings the patient actually reports are used, so a skipped measurement produces no trend for that vital.
 
@@ -273,4 +275,4 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 - **By default no AI model is used.** The patient check-in is always deterministic. Clinician summaries can optionally be enhanced with Claude (see above).
 - **No real patient data should be committed to this repository.** The `patient_data/` directory and `.env` files are excluded via `.gitignore`.
 - The app has no authentication by default. Enable Google IAM or add a password layer before using with real patient data.
-- Only one check-in per patient per day is stored; completing a second one replaces the first.
+- A patient can check in more than once a day. Every check-in and its summary is kept; the dashboard shows the latest of today's check-ins and how many there were.
