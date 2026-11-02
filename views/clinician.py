@@ -13,7 +13,7 @@ from agents.trends import IMPROVING, VITAL_LABELS, WINDOW, WORSENING, assess_tre
 from data.models import DoctorQuestions, PatientRecord
 from views.shared import SAMPLE_DIR, get_db, patient_names
 
-# Roster order: patients who need attention, then those not started, then routine.
+# None is a patient with no check-in today; they rank between attention and routine.
 TRIAGE_RANK = {"Escalate": 0, "Schedule visit": 1, None: 2, "Routine review": 3}
 
 
@@ -48,7 +48,7 @@ def checkin_time(checkin) -> str:
     return datetime.fromisoformat(checkin.timestamp).strftime("%-I:%M %p")
 
 
-def open_patient(patient_id: str | None) -> None:
+def select_patient(patient_id: str | None) -> None:
     st.session_state.clinician_patient_id = patient_id
     if patient_id is None:
         st.query_params.clear()
@@ -114,7 +114,7 @@ def show_roster(names: dict[str, str]) -> None:
                 with st.container(key=f"roster_row_{r['id']}"):
                     info, action = st.columns([6, 1], vertical_alignment="center")
                     info.markdown(ui_theme.roster_row(r), unsafe_allow_html=True)
-                    action.button("Open", key=f"open_{r['id']}", on_click=open_patient, args=(r["id"],))
+                    action.button("Open", key=f"open_{r['id']}", on_click=select_patient, args=(r["id"],))
     st.write("")
     with st.expander("➕ Register a new patient", expanded=not names):
         register_patient()
@@ -122,7 +122,7 @@ def show_roster(names: dict[str, str]) -> None:
 
 def show_patient(selected_id: str) -> None:
     record = db.get_patient(selected_id)
-    st.button("Back to roster", icon=":material/arrow_back:", type="tertiary", on_click=open_patient, args=(None,))
+    st.button("Back to roster", icon=":material/arrow_back:", type="tertiary", on_click=select_patient, args=(None,))
     ui_theme.hero(record.name, f"Patient detail  ·  {date.today().strftime('%A, %B %d, %Y')}")
     ui_theme.detail_cards([
         ("Patient ID", record.patient_id),
