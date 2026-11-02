@@ -32,3 +32,20 @@ def db(tmp_path, monkeypatch):
     for f in sorted(SAMPLE_DIR.glob("patient_*.json")):
         database.save_patient(PatientRecord.model_validate(json.loads(f.read_text())))
     return database
+
+
+@pytest.fixture
+def open_page():
+    """Open a page through the real router, as a browser visiting its URL would."""
+    from streamlit.testing.v1 import AppTest
+
+    def open_(page: str | None = None, **query: str):
+        at = AppTest.from_file(str(Path(__file__).parent.parent / "streamlit_app.py"), default_timeout=60)
+        at.query_params.update(query)
+        at.run()
+        if page:
+            at.switch_page(f"views/{page}.py").run()
+        assert not at.exception
+        return at
+
+    return open_
