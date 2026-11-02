@@ -10,7 +10,7 @@ from pydantic import ValidationError
 import cli
 from data.models import ClinicalSummary, DailyCheckIn, DoctorQuestions, PatientRecord
 from database.patient_db import GCSPatientDatabase
-from tests.test_storage import FakeBucket
+from tests.conftest import FakeBucket
 from views.registration import InvalidUpload, NewPatient, read_upload
 
 SAMPLE = json.loads((Path(__file__).parent.parent / "sample_data" / "patient_001.json").read_text())
