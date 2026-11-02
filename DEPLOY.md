@@ -98,7 +98,32 @@ gcloud storage buckets add-iam-policy-binding gs://$BUCKET \
 Cloud Build uploads the source, builds the image and pushes it to Artifact Registry.
 `.gcloudignore` keeps `.env`, `.venv`, local patient data and tests out of the upload.
 `.dockerignore` keeps the same files out of the image.
+`tests/test_image_context.py` fails if either file stops excluding secrets or patient data, or starts excluding a file the app needs.
+The image installs the exact versions in `requirements.lock`, so a rebuild next month gets the same packages.
 Each image gets two tags: `latest` and the build id, which you can roll back to.
+
+### Refreshing the lock
+
+`requirements.txt` is the file you edit.
+After changing it, or to pick up newer versions, regenerate the lock with Python 3.12, the image's version.
+
+```bash
+# NOT run here
+python3.12 -m venv /tmp/lockvenv
+/tmp/lockvenv/bin/pip install -r requirements.txt
+/tmp/lockvenv/bin/pip freeze | sort -f
+```
+
+Replace the package lines in `requirements.lock` with that output and keep its two header lines.
+On macOS the freeze leaves out `watchdog`, which Streamlit installs only on Linux, so keep the `watchdog` line too.
+Then rebuild a clean venv from the lock alone, install pytest, and run the full test suite before you build.
+
+```bash
+# NOT run here
+python3.12 -m venv /tmp/lockcheck
+/tmp/lockcheck/bin/pip install --no-deps -r requirements.lock && /tmp/lockcheck/bin/pip check
+/tmp/lockcheck/bin/pip install pytest && /tmp/lockcheck/bin/python -m pytest -q
+```
 
 ```bash
 # NOT run here

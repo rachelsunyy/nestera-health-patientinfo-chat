@@ -50,6 +50,8 @@ gcloud run deploy hah-agent-ui \
 TZ=UTC python scripts/seed_demo.py --gcs-bucket nestera-health-hah-agent --reset
 ```
 
+The image installs the pinned versions in `requirements.lock`, not the ranges in `requirements.txt`. After editing `requirements.txt`, regenerate the lock and re-run the tests against it, as described in DEPLOY.md under "Refreshing the lock".
+
 ### Access the app
 
 The service is private. The clinician page has no login, so only people granted `roles/run.invoker` can reach it, and they do so through the proxy.
@@ -284,7 +286,8 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 ├── config.py                 # Paths and settings
 ├── Dockerfile                # Container definition for Cloud Run
 ├── cloudbuild.yaml           # Google Cloud Build configuration
-├── requirements.txt          # Runtime dependencies
+├── requirements.txt          # Runtime dependencies (edit this one)
+├── requirements.lock         # Exact versions the image installs, generated from requirements.txt
 └── requirements-dev.txt      # Adds pytest
 ```
 
