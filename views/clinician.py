@@ -297,7 +297,7 @@ if "clinician_patient_id" not in st.session_state:
     linked = st.query_params.get("patient")
     st.session_state.clinician_patient_id = linked if linked in names else None
     if linked and linked not in names:
-        st.info(f"No patient with id {linked}. Showing today's roster.")
+        st.info("We couldn't find that patient link. Showing today's roster.")
 
 selected = st.session_state.clinician_patient_id
 with st.container(key="clinician_page"):

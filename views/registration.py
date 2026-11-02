@@ -44,6 +44,8 @@ def describe(error: dict) -> str:
         return f"Missing required field: {path}"
     if not path:
         return "The file must contain one patient record as a JSON object."
+    if error["type"] == "value_error":
+        return f"{path}: {error['ctx']['error']}"
     return f"{path}: {EXPECTED.get(error['type'], error['msg'])}"
 
 
