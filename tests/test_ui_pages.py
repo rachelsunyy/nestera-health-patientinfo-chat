@@ -1,6 +1,8 @@
 """Each URL shows one role: / offers both, /patient only the check-in, /clinician only the dashboard."""
 
+from agents.patient_agent import PatientAgent
 from scripts import seed_demo
+from tests.test_seed_demo import kpis, roster_cells
 
 CLINICIAN_STRINGS = ["View as", "Doctor / Nurse", "Clinician Dashboard", "Register a new patient", "Back to roster"]
 
@@ -96,3 +98,30 @@ def test_recent_responses_are_one_question_answer_table_per_check_in(db, open_pa
         df = table.value
         assert list(df.columns) == ["Question", "Answer"]
         assert list(df["Answer"]) == [r.answer for r in ci.responses]
+
+
+def finish_check_in(db, pid: str) -> None:
+    agent = PatientAgent(pid, db)
+    agent.start_session()
+    done = False
+    while not done:
+        _, done = agent.respond("Fine")
+
+
+def test_roster_refresh_shows_a_check_in_finished_in_another_window(db, open_page):
+    at = open_page("clinician")
+    assert "Check-ins complete 0 / 3" in kpis(at)
+    finish_check_in(db, "patient_001")
+    at.button(key="refresh_roster").click().run()
+    assert "Check-ins complete 1 / 3" in kpis(at)
+    assert roster_cells(at, "patient_001")[-2] == "Completed"
+
+
+def test_patient_refresh_reloads_check_ins_and_summary(db, open_page):
+    at = open_page("clinician", patient="patient_001")
+    assert "has not completed today's check-in" in at.info[0].value
+    finish_check_in(db, "patient_001")
+    at.button(key="refresh_patient").click().run()
+    assert not at.exception
+    assert any(m.value.startswith("**Recommended action**") for m in at.markdown)
+    assert len(at.table) == 1

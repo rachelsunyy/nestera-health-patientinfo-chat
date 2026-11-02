@@ -171,7 +171,8 @@ def test_demo_walkthrough_matches_the_screen(db, tmp_path, open_page):
         patient.chat_input[0].set_value(answer).run()
     assert any("Check-in complete!" in s.value for s in patient.success)
 
-    clinician = open_page("clinician")
+    # AppTest has no timers, so the Refresh button stands in for the roster's auto refresh
+    clinician.button(key="refresh_roster").click().run()
     assert kpis(clinician) == "Patients 9 Check-ins complete 5 / 9 Need attention 3"
     assert [r[0] for r in roster(clinician)] == [
         "Grace Thompson", "Walter Briggs", "Samuel Park", "Dorothy Williams", "Frank Ellison",
@@ -237,7 +238,7 @@ def test_demo_walkthrough_matches_the_screen(db, tmp_path, open_page):
         patient.chat_input[0].set_value(answer).run()
     assert any("Check-in complete!" in s.value for s in patient.success)
 
-    clinician = open_page("clinician")
+    button(clinician, "Back to roster").click().run()
     assert roster_cells(clinician, "demo_live")[-3:] == ["Completed", "2 check-ins today", "Schedule visit"]
     open_patient(clinician, "demo_live")
     assert clinician.caption[0].value.startswith("2 check-ins today. Showing the latest, from ")

@@ -1,6 +1,6 @@
 # Sponsor demo script
 
-A 10 to 12 minute walkthrough for Nestera Health. All patients are synthetic. Every screen detail below was checked by driving the app with Streamlit's test runner on freshly seeded data, and `tests/test_seed_demo.py` replays the walkthrough so the script fails loudly if the app changes. Nobody has rehearsed it in a browser yet, so do one full run before the demo.
+A 10 to 12 minute walkthrough for Nestera Health. All patients are synthetic. Every screen detail below was checked by driving the app with Streamlit's test runner on freshly seeded data, and `tests/test_seed_demo.py` replays the walkthrough so the script fails loudly if the app changes. The test runner has no timers, so the roster's 10-second refresh was checked against a running server instead. Nobody has rehearsed it in a browser yet, so do one full run before the demo.
 
 ## 1. Setup
 
@@ -16,6 +16,8 @@ Then open two browser windows side by side:
 
 - The patient window at http://localhost:8501/patient. It shows only what a patient sees.
 - The clinician window at http://localhost:8501/clinician. It shows only the dashboard.
+
+The clinician roster refreshes itself every 10 seconds, and a **Refresh** button above it refreshes it at once. A patient's detail screen does not refresh by itself. Click its **Refresh** button or go **Back to roster**.
 
 http://localhost:8501 itself is a landing page with an **I'm a patient** card and an **I'm a clinician** card. Use it if you want to show how someone picks their role. It is the only screen that offers both.
 
@@ -80,7 +82,7 @@ What to say:
 
 ### 4:00 Clinician dashboard (2 minutes)
 
-1. In the clinician window, reload the page (Cmd+R on a Mac, Ctrl+R on Windows). The dashboard does not refresh by itself.
+1. Switch to the clinician window. The roster picks up the check-in within about 10 seconds. Click **Refresh** above the roster if you do not want to wait.
 2. The tiles read **Patients 9**, **Check-ins complete 5 / 9**, **Need attention 3**. Before the live check-in they read 4 / 9 and 2.
 3. Walk the roster. Patients who need attention come first, then patients who have not started, then routine ones.
    - Grace Thompson. Completed, red **Escalate**. This is the check-in you just did.
@@ -146,7 +148,7 @@ What to say:
 | 8 | Any falls or new concerns? | `No falls, I feel safe at home.` |
 | 9 | Anything else? | `No, that's all.` |
 
-6. Reload the clinician window. Grace's row now says "2 check-ins today" and shows amber **Schedule visit**. Open her row. The Clinical Summary caption reads "2 check-ins today. Showing the latest". The only flagged item is "Worsening trend: Oxygen saturation drifting the wrong way: 96% → 96% → 89% → 93%". The response history has a table for each of today's check-ins, with the doctor question and its answer in the first row of the newer one.
+6. In the clinician window, click **Back to roster**. Grace's row now says "2 check-ins today" and shows amber **Schedule visit**. Open her row. The Clinical Summary caption reads "2 check-ins today. Showing the latest". The only flagged item is "Worsening trend: Oxygen saturation drifting the wrong way: 96% → 96% → 89% → 93%". The response history has a table for each of today's check-ins, with the doctor question and its answer in the first row of the newer one.
 
 What to say:
 

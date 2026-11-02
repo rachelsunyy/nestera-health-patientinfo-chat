@@ -15,6 +15,7 @@ from views.shared import SAMPLE_DIR, get_db, patient_names
 
 # None is a patient with no check-in today; they rank between attention and routine.
 TRIAGE_RANK = {"Escalate": 0, "Schedule visit": 1, None: 2, "Routine review": 3}
+ROSTER_REFRESH_SECONDS = 10
 
 
 def show_summary(summary) -> None:
@@ -52,6 +53,8 @@ def select_patient(patient_id: str | None) -> None:
     st.session_state.clinician_patient_id = patient_id
     if patient_id is None:
         st.query_params.clear()
+    # Open lives in the auto-refreshing fragment, whose clicks rerun only the fragment
+    st.rerun()
 
 
 def roster_row(pid: str, name: str, today: str) -> dict:
@@ -93,28 +96,37 @@ def register_patient() -> None:
         st.code(sample_path.read_text(), language="json")
 
 
-def show_roster(names: dict[str, str]) -> None:
+@st.fragment(run_every=ROSTER_REFRESH_SECONDS)
+def roster_list() -> None:
+    names = patient_names(db)
     today = date.today().isoformat()
-    ui_theme.hero("Clinician Dashboard", f"{date.today().strftime('%A, %B %d, %Y')}  ·  Today's check-in overview")
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.caption(f"Updated {datetime.now():%-I:%M:%S %p}. Refreshes every {ROSTER_REFRESH_SECONDS} seconds.")
+        st.button("Refresh", icon=":material/refresh:", type="tertiary", key="refresh_roster")
     if not names:
         st.info("No patients are registered yet. Register one below.")
-    else:
-        rows = sorted((roster_row(pid, name, today) for pid, name in names.items()),
-                      key=lambda r: (r["rank"], r["name"]))
-        n_done = sum(r["done"] for r in rows)
-        n_attn = sum(r["attention"] for r in rows)
-        ui_theme.kpi_row([
-            ("Patients", len(rows), ""),
-            ("Check-ins complete", f"{n_done} / {len(rows)}", "green" if n_done == len(rows) else ""),
-            ("Need attention", n_attn, "red" if n_attn else "green"),
-        ])
-        with st.container(key="roster"):
-            st.columns([6, 1])[0].markdown(ui_theme.roster_header(), unsafe_allow_html=True)
-            for r in rows:
-                with st.container(key=f"roster_row_{r['id']}"):
-                    info, action = st.columns([6, 1], vertical_alignment="center")
-                    info.markdown(ui_theme.roster_row(r), unsafe_allow_html=True)
-                    action.button("Open", key=f"open_{r['id']}", on_click=select_patient, args=(r["id"],))
+        return
+    rows = sorted((roster_row(pid, name, today) for pid, name in names.items()),
+                  key=lambda r: (r["rank"], r["name"]))
+    n_done = sum(r["done"] for r in rows)
+    n_attn = sum(r["attention"] for r in rows)
+    ui_theme.kpi_row([
+        ("Patients", len(rows), ""),
+        ("Check-ins complete", f"{n_done} / {len(rows)}", "green" if n_done == len(rows) else ""),
+        ("Need attention", n_attn, "red" if n_attn else "green"),
+    ])
+    with st.container(key="roster"):
+        st.columns([6, 1])[0].markdown(ui_theme.roster_header(), unsafe_allow_html=True)
+        for r in rows:
+            with st.container(key=f"roster_row_{r['id']}"):
+                info, action = st.columns([6, 1], vertical_alignment="center")
+                info.markdown(ui_theme.roster_row(r), unsafe_allow_html=True)
+                action.button("Open", key=f"open_{r['id']}", on_click=select_patient, args=(r["id"],))
+
+
+def show_roster(names: dict[str, str]) -> None:
+    ui_theme.hero("Clinician Dashboard", f"{date.today().strftime('%A, %B %d, %Y')}  ·  Today's check-in overview")
+    roster_list()
     st.write("")
     with st.expander("➕ Register a new patient", expanded=not names):
         register_patient()
@@ -122,7 +134,9 @@ def show_roster(names: dict[str, str]) -> None:
 
 def show_patient(selected_id: str) -> None:
     record = db.get_patient(selected_id)
-    st.button("Back to roster", icon=":material/arrow_back:", type="tertiary", on_click=select_patient, args=(None,))
+    with st.container(horizontal=True, horizontal_alignment="distribute"):
+        st.button("Back to roster", icon=":material/arrow_back:", type="tertiary", on_click=select_patient, args=(None,))
+        st.button("Refresh", icon=":material/refresh:", type="tertiary", key="refresh_patient")
     ui_theme.hero(record.name, f"Patient detail  ·  {date.today().strftime('%A, %B %d, %Y')}")
     ui_theme.detail_cards([
         ("Patient ID", record.patient_id),
