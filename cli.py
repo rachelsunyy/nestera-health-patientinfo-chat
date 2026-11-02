@@ -16,7 +16,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from data.models import PatientRecord, DoctorQuestions
+from data.models import PatientRecord, DoctorQuestions, validate_checkin_id, validate_patient_id
 from database.patient_db import MockPatientDatabase
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
@@ -112,6 +112,15 @@ def _run_summary(patient_id: str, checkin_id: str | None = None):
             console.print(f"  ⚠  {item}")
 
 
+def arg_type(validate):
+    def parse(value: str) -> str:
+        try:
+            return validate(value)
+        except ValueError as e:
+            raise argparse.ArgumentTypeError(str(e))
+    return parse
+
+
 def main():
     parser = argparse.ArgumentParser(description="Hospital-At-Home Agent CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -120,15 +129,15 @@ def main():
     sub.add_parser("list-patients")
 
     p = sub.add_parser("add-questions")
-    p.add_argument("--patient", required=True)
+    p.add_argument("--patient", required=True, type=arg_type(validate_patient_id))
     p.add_argument("--questions", nargs="+", required=True)
     p.add_argument("--added-by", default="")
 
-    p = sub.add_parser("checkin"); p.add_argument("--patient", required=True)
+    p = sub.add_parser("checkin"); p.add_argument("--patient", required=True, type=arg_type(validate_patient_id))
 
     p = sub.add_parser("summary")
-    p.add_argument("--patient", required=True)
-    p.add_argument("--checkin", default=None, help="check-in id; defaults to today's latest")
+    p.add_argument("--patient", required=True, type=arg_type(validate_patient_id))
+    p.add_argument("--checkin", default=None, type=arg_type(validate_checkin_id), help="check-in id; defaults to today's latest")
 
     args = parser.parse_args()
     {

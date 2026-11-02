@@ -5,11 +5,13 @@ real questions PatientAgent builds for that patient, are saved with backdated da
 summarised by the real SummaryAgent with AI forced off, so every flag, recommended action and
 trend shown in the app comes from the production rules.
 
-Only patients whose id starts with `demo_` are written or removed.
+Only patients whose id starts with `demo_` are written or removed. Seeding a Cloud Storage bucket
+also adds the sample_data patients if they are missing, because the app only auto-loads them locally.
 
     python scripts/seed_demo.py              # create or refresh the demo patients
     python scripts/seed_demo.py --reset      # also remove every other demo_ patient first
     python scripts/seed_demo.py --data-dir /tmp/demo_data
+    python scripts/seed_demo.py --gcs-bucket my-bucket --reset    # uses your gcloud credentials
 """
 
 from __future__ import annotations
@@ -21,7 +23,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 import config  # noqa: E402
 import database.patient_db as patient_db  # noqa: E402
@@ -31,6 +34,7 @@ from agents.trends import assess_trend  # noqa: E402
 from data.models import CheckInResponse, DailyCheckIn, PatientRecord  # noqa: E402
 
 PREFIX = "demo_"
+SAMPLE_DIR = ROOT / "sample_data"
 
 # (substring of a PatientAgent question, topic). The first match wins, so "breathing rate" sits before "breathing".
 _TOPICS = [
@@ -242,17 +246,36 @@ def demo_dirs(data_dir: Path) -> list[Path]:
 
 def seed(data_dir: Path, reset: bool = False, now: datetime | None = None) -> list[dict]:
     """Converge every scenario patient to its seeded state and return one summary row per patient."""
-    now = (now or datetime.now()).replace(second=0, microsecond=0)
     data_dir.mkdir(parents=True, exist_ok=True)
     patient_db.DATA_DIR = data_dir
-    config.AI_ASSIST_ENABLED = False      # no network, no key, no audit entries: rules only
 
     targets = demo_dirs(data_dir) if reset else [data_dir / s.record.patient_id for s in SCENARIOS]
     for path in targets:
         if path.is_dir():
             shutil.rmtree(path)
 
-    db = patient_db.MockPatientDatabase()
+    return _seed_scenarios(patient_db.MockPatientDatabase(), now)
+
+
+def seed_bucket(db: patient_db.GCSPatientDatabase, reset: bool = False, now: datetime | None = None) -> list[dict]:
+    """seed() for a Cloud Storage bucket, plus the sample_data patients if the bucket lacks them."""
+    existing = db.list_patient_ids()
+    targets = [pid for pid in existing if pid.startswith(PREFIX)] if reset else [s.record.patient_id for s in SCENARIOS]
+    for pid in targets:
+        assert pid.startswith(PREFIX), pid
+        db.delete_patient(pid)
+
+    for f in sorted(SAMPLE_DIR.glob("patient_*.json")):
+        record = PatientRecord.model_validate_json(f.read_text())
+        if record.patient_id not in existing:
+            db.save_patient(record)
+
+    return _seed_scenarios(db, now)
+
+
+def _seed_scenarios(db: patient_db.PatientDatabase, now: datetime | None) -> list[dict]:
+    now = (now or datetime.now()).replace(second=0, microsecond=0)
+    config.AI_ASSIST_ENABLED = False      # no network, no key, no audit entries: rules only
     for scenario in SCENARIOS:
         seed_scenario(db, scenario, now)
     return [summary_row(db, s.record.patient_id, now.date().isoformat()) for s in SCENARIOS]
@@ -282,13 +305,21 @@ def format_table(rows: list[dict]) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--data-dir", type=Path, default=config.DATA_DIR,
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--data-dir", type=Path, default=config.DATA_DIR,
                         help=f"where patient folders live (default: {config.DATA_DIR})")
+    target.add_argument("--gcs-bucket", metavar="NAME",
+                        help="seed this Cloud Storage bucket (the one the app's GCS_BUCKET names) instead")
     parser.add_argument("--reset", action="store_true",
-                        help="remove every demo_ patient folder before seeding, including ones no scenario uses")
+                        help="remove every demo_ patient before seeding, including ones no scenario uses")
     args = parser.parse_args(argv)
-    rows = seed(args.data_dir.resolve(), reset=args.reset)
-    print(f"Seeded {len(rows)} demo patients in {args.data_dir.resolve()}\n")
+    if args.gcs_bucket:
+        rows = seed_bucket(patient_db.GCSPatientDatabase(args.gcs_bucket), reset=args.reset)
+        where = f"gs://{args.gcs_bucket}"
+    else:
+        rows = seed(args.data_dir.resolve(), reset=args.reset)
+        where = args.data_dir.resolve()
+    print(f"Seeded {len(rows)} demo patients in {where}\n")
     print(format_table(rows))
 
 

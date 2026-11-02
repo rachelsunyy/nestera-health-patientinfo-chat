@@ -1,9 +1,30 @@
 """Pydantic data models for patients, check-ins, and summaries."""
 
 from __future__ import annotations
+import re
 from datetime import date, datetime
-from typing import Any
-from pydantic import BaseModel, Field, model_validator
+from typing import Annotated, Any
+from pydantic import AfterValidator, BaseModel, Field, model_validator
+
+# Ids become folder and object-name segments, so neither pattern admits a slash, a backslash, whitespace or "..".
+PATIENT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+CHECKIN_ID = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}-[0-9]{2}-[0-9]{2}(\.[0-9]{1,6})?)?")
+
+
+def validate_patient_id(value: str) -> str:
+    if not PATIENT_ID.fullmatch(value):
+        raise ValueError("A patient id must be 1 to 64 letters, digits, underscores or hyphens.")
+    return value
+
+
+def validate_checkin_id(value: str) -> str:
+    if not CHECKIN_ID.fullmatch(value):
+        raise ValueError("A check-in id must be a date like 2026-10-29 or a date and time like 2026-11-01T17-30-05.123456.")
+    return value
+
+
+PatientId = Annotated[str, AfterValidator(validate_patient_id)]
+CheckinId = Annotated[str, AfterValidator(validate_checkin_id)]
 
 
 class Medication(BaseModel):
@@ -19,7 +40,7 @@ class Condition(BaseModel):
 
 
 class PatientRecord(BaseModel):
-    patient_id: str
+    patient_id: PatientId
     name: str
     date_of_birth: str          # ISO-8601 date string
     care_team_contact: str      # Phone / email shown to patient when they need help
@@ -40,14 +61,14 @@ class CheckInResponse(BaseModel):
 
 class DoctorQuestions(BaseModel):
     """Questions a doctor/nurse adds for a specific patient's next check-in."""
-    patient_id: str
+    patient_id: PatientId
     date: str = Field(default_factory=lambda: date.today().isoformat())
     questions: list[str] = []
     added_by: str = ""   # clinician name or ID
 
 
 class DailyCheckIn(BaseModel):
-    patient_id: str
+    patient_id: PatientId
     id: str = ""                   # storage key; several check-ins can share a date
     date: str = Field(default_factory=lambda: date.today().isoformat())
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
@@ -64,7 +85,7 @@ class DailyCheckIn(BaseModel):
 
 
 class ClinicalSummary(BaseModel):
-    patient_id: str
+    patient_id: PatientId
     date: str
     checkin_id: str = ""           # the check-in this note describes; legacy notes default to their date
     generated_at: str = Field(default_factory=lambda: datetime.now().isoformat())

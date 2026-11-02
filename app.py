@@ -33,7 +33,7 @@ from fastapi import FastAPI, HTTPException, Body
 from pydantic import BaseModel
 
 from config import DATA_DIR
-from data.models import PatientRecord, DoctorQuestions, ClinicalSummary
+from data.models import CheckinId, PatientId, PatientRecord, DoctorQuestions, ClinicalSummary
 from database.patient_db import MockPatientDatabase, GCSPatientDatabase
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
@@ -93,7 +93,7 @@ def list_patients():
     return {"patient_ids": db.list_patient_ids()}
 
 @app.get("/patients/{patient_id}")
-def get_patient(patient_id: str):
+def get_patient(patient_id: PatientId):
     try:
         return db.get_patient(patient_id)
     except FileNotFoundError as e:
@@ -103,7 +103,7 @@ def get_patient(patient_id: str):
 # ── Doctor questions ───────────────────────────────────────────────────────
 
 @app.post("/doctor/questions/{patient_id}", status_code=201)
-def add_doctor_questions(patient_id: str, body: DoctorQuestionsRequest):
+def add_doctor_questions(patient_id: PatientId, body: DoctorQuestionsRequest):
     today = date.today().isoformat()
     dq = DoctorQuestions(
         patient_id=patient_id,
@@ -115,7 +115,7 @@ def add_doctor_questions(patient_id: str, body: DoctorQuestionsRequest):
     return {"patient_id": patient_id, "date": today, "questions_saved": len(body.questions)}
 
 @app.get("/doctor/questions/{patient_id}")
-def get_doctor_questions(patient_id: str):
+def get_doctor_questions(patient_id: PatientId):
     today = date.today().isoformat()
     questions = db.get_doctor_questions(patient_id, today)
     return {"patient_id": patient_id, "date": today, "questions": questions}
@@ -124,7 +124,7 @@ def get_doctor_questions(patient_id: str):
 # ── Check-in sessions ──────────────────────────────────────────────────────
 
 @app.post("/session/start/{patient_id}", response_model=SessionStartResponse)
-def start_session(patient_id: str):
+def start_session(patient_id: PatientId):
     agent = PatientAgent(patient_id, db)
     try:
         opening = agent.start_session()
@@ -167,7 +167,7 @@ def session_status(session_id: str):
 # ── Clinical summaries ─────────────────────────────────────────────────────
 
 @app.post("/summary/{patient_id}", response_model=ClinicalSummary)
-def generate_summary(patient_id: str):
+def generate_summary(patient_id: PatientId):
     try:
         summary = SummaryAgent(patient_id, db).generate()
     except (FileNotFoundError, ValueError) as e:
@@ -175,7 +175,7 @@ def generate_summary(patient_id: str):
     return summary
 
 @app.get("/summary/{patient_id}")
-def get_summary(patient_id: str, checkin_id: str | None = None):
+def get_summary(patient_id: PatientId, checkin_id: CheckinId | None = None):
     if checkin_id is None:
         today = date.today().isoformat()
         todays = db.get_checkins_for_date(patient_id, today)
@@ -189,7 +189,7 @@ def get_summary(patient_id: str, checkin_id: str | None = None):
 
 
 @app.get("/trend/{patient_id}")
-def get_trend(patient_id: str):
+def get_trend(patient_id: PatientId):
     """Improving / Stable / Worsening across the patient's recent check-ins, with the reasons."""
     try:
         db.get_patient(patient_id)

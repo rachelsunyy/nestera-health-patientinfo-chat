@@ -5,10 +5,10 @@ A conversational check-in chatbot for Hospital-At-Home programs. Patients comple
 ## How It Works
 
 **Patient side**
-The patient opens the app, selects their name, and the chatbot immediately starts asking 8–10 questions personalized to their conditions, medications, and monitoring parameters. No AI model is called — questions are built directly from the patient's medical record. The patient types answers in plain language and presses Enter after each one.
+The patient opens `/patient`, picks their name, and the chatbot immediately starts asking 8–10 questions personalized to their conditions, medications, and monitoring parameters. No AI model is called — questions are built directly from the patient's medical record. The patient types answers in plain language and presses Enter after each one.
 
 **Doctor / Nurse side**
-As soon as the patient finishes, a clinical note is automatically generated from their exact responses. The doctor opens the dashboard, selects the patient, and sees a structured note with all Q&A pairs, any flagged concerns (missed medications, worsening symptoms, etc.), and a recommended action: Routine review / Schedule visit / Escalate.
+As soon as the patient finishes, a clinical note is automatically generated from their exact responses. The doctor opens `/clinician`, clicks **Open** on the patient's row in the roster, and sees a structured note with all Q&A pairs, any flagged concerns (missed medications, worsening symptoms, etc.), and a recommended action: Routine review / Schedule visit / Escalate.
 
 ## Features
 
@@ -29,19 +29,32 @@ As soon as the patient finishes, a clinical note is automatically generated from
 
 ### Deploy to Cloud Run
 
-```bash
-# Build the Docker image
-gcloud builds submit --project=nestera-health
+[DEPLOY.md](DEPLOY.md) has the full steps: checking the project, one-time setup, build, deploy flags, seeding the bucket, verifying, rollback and teardown. The short version, after that setup:
 
-# Deploy
+```bash
+# Build the image (tagged latest and with the build id)
+gcloud builds submit --project=nestera-health --config cloudbuild.yaml .
+
+# Deploy, private by default (see DEPLOY.md for every flag)
 gcloud run deploy hah-agent-ui \
   --image us-central1-docker.pkg.dev/nestera-health/hah-agent/app:latest \
   --region us-central1 \
   --project=nestera-health \
+  --no-allow-unauthenticated \
+  --service-account=hah-agent-run@nestera-health.iam.gserviceaccount.com \
+  --min-instances=1 --max-instances=1 --session-affinity --timeout=3600 \
+  --memory=1Gi --cpu=1 \
   --set-env-vars GCS_BUCKET=nestera-health-hah-agent
+
+# Seed the bucket with the demo patients (repeat on demo day)
+TZ=UTC python scripts/seed_demo.py --gcs-bucket nestera-health-hah-agent --reset
 ```
 
+The image installs the pinned versions in `requirements.lock`, not the ranges in `requirements.txt`. After editing `requirements.txt`, regenerate the lock and re-run the tests against it, as described in DEPLOY.md under "Refreshing the lock".
+
 ### Access the app
+
+The service is private. The clinician page has no login, so only people granted `roles/run.invoker` can reach it, and they do so through the proxy.
 
 ```bash
 gcloud run services proxy hah-agent-ui \
@@ -50,7 +63,7 @@ gcloud run services proxy hah-agent-ui \
   --port=8082
 ```
 
-Then open Web Preview on port 8082 in Cloud Shell, or visit the service URL directly if public access has been enabled.
+Then open http://localhost:8082/patient and http://localhost:8082/clinician. In Cloud Shell, use Web Preview on port 8082 and add `/patient` or `/clinician` to the preview URL. Opening the `run.app` URL directly in a browser returns 403. DEPLOY.md explains how to grant access and when a public URL is acceptable.
 
 ### Run locally
 
@@ -61,7 +74,12 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Then open http://localhost:8501. No environment variables are required for local development: the app stores data as JSON files in `patient_data/` (git-ignored) and loads the sample patients in `sample_data/` automatically. To use Google Cloud Storage instead, set `GCS_BUCKET`.
+Then open http://localhost:8501. The landing page offers two experiences, each at its own URL:
+
+- http://localhost:8501/patient is the patient check-in. It shows only what a patient sees. Add `?patient=<id>` to skip the name picker, as in `/patient?patient=patient_001`.
+- http://localhost:8501/clinician is the clinician dashboard: today's roster, then each patient's summary, trends and added questions. `?patient=<id>` opens that patient directly.
+
+No environment variables are required for local development: the app stores data as JSON files in `patient_data/` (git-ignored) and loads the sample patients in `sample_data/` automatically. To use Google Cloud Storage instead, set `GCS_BUCKET`.
 
 Each patient's folder (or `patients/<patient_id>/` in the bucket) holds `record.json`, `doctor_questions/<date>.json`, and one file per check-in in `checkins/` and `summaries/`, named by check-in id (date and time, such as `2026-11-01T17-30-05.123456.json`). Files from older versions named by date alone (`2026-10-29.json`) still load, with the date as their id.
 
@@ -86,7 +104,7 @@ pytest
 
 ## Patient Record Format
 
-Register a new patient by uploading a JSON file in the Doctor / Nurse → Register Patient tab.
+Register a new patient by uploading a JSON file under **Register a new patient**, below the roster on `/clinician`. A file whose `patient_id` is already registered replaces that record only after you click **Replace the existing record**. Check-ins and notes are kept. A file that does not match the format below is rejected with one line per problem, such as `Missing required field: date_of_birth`.
 
 ```json
 {
@@ -233,7 +251,12 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 
 ```
 .
-├── streamlit_app.py          # Main web interface (patient + clinician views)
+├── streamlit_app.py          # Web interface entry point: routes /, /patient and /clinician
+├── views/
+│   ├── landing.py            # / : choose the patient or the clinician experience
+│   ├── patient.py            # /patient : name picker, then the check-in chat
+│   ├── clinician.py          # /clinician : roster, then one patient's summary, trends and questions
+│   └── shared.py             # Database connection and patient names shared by the pages
 ├── ui_theme.py               # Branding, CSS and small HTML components for the UI
 ├── .streamlit/config.toml    # Streamlit theme
 ├── agents/
@@ -263,7 +286,8 @@ There is no "HIPAA-approved model". What matters is the **agreement and service*
 ├── config.py                 # Paths and settings
 ├── Dockerfile                # Container definition for Cloud Run
 ├── cloudbuild.yaml           # Google Cloud Build configuration
-├── requirements.txt          # Runtime dependencies
+├── requirements.txt          # Runtime dependencies (edit this one)
+├── requirements.lock         # Exact versions the image installs, generated from requirements.txt
 └── requirements-dev.txt      # Adds pytest
 ```
 

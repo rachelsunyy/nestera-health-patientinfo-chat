@@ -1,6 +1,6 @@
 # Sponsor demo script
 
-A 10 to 12 minute walkthrough for Nestera Health. All patients are synthetic. Every screen detail below was checked by driving the app with Streamlit's test runner on freshly seeded data, and `tests/test_seed_demo.py` replays the walkthrough so the script fails loudly if the app changes. Nobody has rehearsed it in a browser yet, so do one full run before the demo.
+A 10 to 12 minute walkthrough for Nestera Health. All patients are synthetic. Every screen detail below was checked by driving the app with Streamlit's test runner on freshly seeded data, and `tests/test_seed_demo.py` replays the walkthrough so the script fails loudly if the app changes. The test runner has no timers, so the roster's 10-second refresh was checked against a running server instead. Nobody has rehearsed it in a browser yet, so do one full run before the demo.
 
 ## 1. Setup
 
@@ -12,7 +12,14 @@ python scripts/seed_demo.py --reset
 AI_ASSIST_ENABLED=false AI_CONVERSATION_ENABLED=false streamlit run streamlit_app.py
 ```
 
-Then open http://localhost:8501.
+Then open two browser windows side by side:
+
+- The patient window at http://localhost:8501/patient. It shows only what a patient sees.
+- The clinician window at http://localhost:8501/clinician. It shows only the dashboard.
+
+The clinician roster refreshes itself every 10 seconds, and a **Refresh** button above it refreshes it at once. A patient's detail screen does not refresh by itself. Click its **Refresh** button or go **Back to roster**.
+
+http://localhost:8501 itself is a landing page with an **I'm a patient** card and an **I'm a clinician** card. Use it if you want to show how someone picks their role. It is the only screen that offers both.
 
 The `AI_...=false` prefix keeps the demo rules-only even if your `.env` turns AI on. Values set on the command line win over `.env`.
 
@@ -20,7 +27,7 @@ The seed script writes six demo patients into `patient_data/`. Their ids start w
 
 Dates are relative to today. Seed on the day of the demo. If you seed the day before, every demo patient shows Not started.
 
-**Reset between rehearsals.** Run `python scripts/seed_demo.py --reset`, then reload the browser tab. This removes the live check-ins and the doctor question you added, and puts the demo patients back to their starting state. Running it twice gives the same result.
+**Reset between rehearsals.** Run `python scripts/seed_demo.py --reset`, then reload both browser windows. The patient window goes back to the name picker. This removes the live check-ins and the doctor question you added, and puts the demo patients back to their starting state. Running it twice gives the same result.
 
 What the seed prints:
 
@@ -50,8 +57,8 @@ What to say:
 
 ### 1:30 Patient side, live check-in (2.5 minutes)
 
-1. In the sidebar, set **View as** to **Patient**.
-2. In **Select your name**, pick **Grace Thompson**.
+1. In the patient window, the screen asks "Who is checking in today?".
+2. In **Your name**, pick **Grace Thompson**, then click **Start**.
 3. The chat opens with "Hello Grace!" and says it will ask 8 questions. The progress bar reads "0 of 8 questions answered". A red banner tells the patient to call 911 in an emergency.
 4. Type these answers exactly, pressing Enter after each one:
 
@@ -75,15 +82,15 @@ What to say:
 
 ### 4:00 Clinician dashboard (2 minutes)
 
-1. Set **View as** to **Doctor / Nurse**.
+1. Switch to the clinician window. The roster picks up the check-in within about 10 seconds. Click **Refresh** above the roster if you do not want to wait.
 2. The tiles read **Patients 9**, **Check-ins complete 5 / 9**, **Need attention 3**. Before the live check-in they read 4 / 9 and 2.
-3. Walk the roster. Row order can vary.
+3. Walk the roster. Patients who need attention come first, then patients who have not started, then routine ones.
    - Grace Thompson. Completed, red **Escalate**. This is the check-in you just did.
    - Walter Briggs. Completed, red **Escalate**.
    - Samuel Park. Completed, with "2 check-ins today" under it, amber **Schedule visit**.
-   - Rosa Delgado and Harold Okafor. Completed, green **Routine review**.
-   - Frank Ellison and the three sample patients. Gray **Not started**, no action yet.
-4. In the sidebar **Patient** box, pick **Grace Thompson**. On the **Clinical Summary** tab:
+   - Dorothy Williams, Frank Ellison, Margaret Chen and Robert Johnson. Gray **Not started**, no action yet.
+   - Harold Okafor and Rosa Delgado. Completed, green **Routine review**.
+4. Click **Open** on Grace Thompson's row. On the **Clinical Summary** tab:
    - Recommended action is **Escalate**.
    - Two flagged items. "Low oxygen saturation: 89% (below 90%)" with her words, and "Worsening trend: Oxygen saturation moving outside the normal range: 96% → 96% → 89%; Recommended action rose to Escalate (previously at most Routine review)".
    - Nothing is flagged for "No falls".
@@ -96,7 +103,7 @@ What to say:
 
 ### 6:00 Trends (1.5 minutes)
 
-1. Pick **Walter Briggs**, the pneumonia patient, and open the **Trends** tab.
+1. Click **Back to roster** at the top, then **Open** on Walter Briggs, the pneumonia patient. Open the **Trends** tab.
 2. The chip reads **Worsening** over the last 5 check-ins, with these reasons:
    - Oxygen saturation moving outside the normal range: 97% → 96% → 95% → 93% → 89%
    - Temperature moving outside the normal range: 98.9 °F → 99.1 °F → 99.4 °F → 99.9 °F → 100.6 °F
@@ -104,7 +111,7 @@ What to say:
    - Recommended action rose to Escalate (previously at most Routine review)
    - Patient reports more symptoms getting worse than at the last check-in
 3. Charts for oxygen saturation, temperature and breathing rate follow.
-4. For contrast, pick **Rosa Delgado**. Her chip reads **Improving**, with "Blood sugar returning toward normal: 310 mg/dL → 265 mg/dL → 220 mg/dL → 175 mg/dL → 142 mg/dL". Harold Okafor reads **Stable**.
+4. For contrast, go back to the roster and open **Rosa Delgado**. Her chip reads **Improving**, with "Blood sugar returning toward normal: 310 mg/dL → 265 mg/dL → 220 mg/dL → 175 mg/dL → 142 mg/dL". Harold Okafor reads **Stable**.
 
 What to say:
 
@@ -113,9 +120,9 @@ What to say:
 
 ### 7:30 Two check-ins on the same day (1 minute)
 
-1. Pick **Samuel Park**. The Clinical Summary tab shows a caption "2 check-ins today. Showing the latest, from" followed by a time earlier today.
+1. Go back to the roster and open **Samuel Park**. The Clinical Summary tab shows a caption "2 check-ins today. Showing the latest, from" followed by a time earlier today.
 2. The latest note is **Schedule visit**, with "High blood pressure: 172/104 mmHg" and his words "I have a pounding headache and feel very dizzy".
-3. Open **View recent check-in responses**. Both of today's check-ins are listed. The earlier one has a blood pressure of 132 over 84. The later one has 172 over 104.
+3. Open **View recent check-in responses**. Each check-in is a table of questions and answers, newest first, titled with its date and time. Both of today's check-ins are there. The earlier one has a blood pressure of 132 over 84. The later one has 172 over 104.
 
 What to say:
 
@@ -123,9 +130,9 @@ What to say:
 
 ### 8:30 A doctor question, then a second live check-in (2 minutes)
 
-1. Pick **Grace Thompson** again and open the **Add Questions** tab.
+1. Go back to the roster, open **Grace Thompson** again, and open the **Add Questions** tab.
 2. Type `Dr. Rivera` in **Your name** and `Did you feel lightheaded when you stood up today?` in the questions box. Click **Save questions**. The screen shows "1 question(s) saved for Grace Thompson."
-3. Switch **View as** to **Patient**. Grace's finished check-in is still on screen. Click **Start a new check-in**.
+3. In the patient window, Grace's finished check-in is still on screen. Click **Start a new check-in**.
 4. The chat now says it will ask 9 questions, and the first one is Dr. Rivera's question.
 5. Type these answers:
 
@@ -141,7 +148,7 @@ What to say:
 | 8 | Any falls or new concerns? | `No falls, I feel safe at home.` |
 | 9 | Anything else? | `No, that's all.` |
 
-6. Switch to **Doctor / Nurse**. Grace's row now says "2 check-ins today" and shows amber **Schedule visit**. The Clinical Summary caption reads "2 check-ins today. Showing the latest". The only flagged item is "Worsening trend: Oxygen saturation drifting the wrong way: 96% → 96% → 89% → 93%". The history lists both of today's check-ins, with the doctor question and its answer at the top of the newer one.
+6. In the clinician window, click **Back to roster**. Grace's row now says "2 check-ins today" and shows amber **Schedule visit**. Open her row. The Clinical Summary caption reads "2 check-ins today. Showing the latest". The only flagged item is "Worsening trend: Oxygen saturation drifting the wrong way: 96% → 96% → 89% → 93%". The response history has a table for each of today's check-ins, with the doctor question and its answer in the first row of the newer one.
 
 What to say:
 
@@ -212,8 +219,9 @@ Say these out loud.
 - [ ] `pip install -r requirements-dev.txt` and `pytest` pass.
 - [ ] `python scripts/seed_demo.py --reset` on the day of the demo prints the table in section 1.
 - [ ] Start the app with `AI_ASSIST_ENABLED=false AI_CONVERSATION_ENABLED=false streamlit run streamlit_app.py`, unless you are deliberately showing conversational mode.
-- [ ] Open http://localhost:8501, switch to Doctor / Nurse, and check the tiles read Patients 9, Check-ins complete 4 / 9, Need attention 2. More patients means other data is in `patient_data/`.
+- [ ] Open http://localhost:8501/clinician and check the tiles read Patients 9, Check-ins complete 4 / 9, Need attention 2. More patients means other data is in `patient_data/`.
 - [ ] Confirm Grace Thompson shows Not started.
+- [ ] Open http://localhost:8501/patient in a second window, side by side with the first. It should ask "Who is checking in today?".
 - [ ] Close `.env` and any window showing an API key before you share your screen.
 - [ ] Close other browser tabs of the app, so an old session does not show stale screens.
 - [ ] Keep this file open on a second screen for the answers to type.

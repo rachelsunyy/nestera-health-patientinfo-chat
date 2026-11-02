@@ -8,6 +8,7 @@ base = "light"
 
 [client]
 toolbarMode = "minimal"
+showErrorDetails = "none"
 
 [browser]
 gatherUsageStats = false

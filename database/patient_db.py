@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from data.models import (
-    PatientRecord, DoctorQuestions, DailyCheckIn, ClinicalSummary
+    PATIENT_ID, PatientRecord, DoctorQuestions, DailyCheckIn, ClinicalSummary, validate_patient_id
 )
 from config import DATA_DIR
 
@@ -89,7 +89,7 @@ class MockPatientDatabase(PatientDatabase):
     """
 
     def _patient_dir(self, patient_id: str) -> Path:
-        p = DATA_DIR / patient_id
+        p = DATA_DIR / validate_patient_id(patient_id)
         for sub in ("doctor_questions", "checkins", "summaries"):
             (p / sub).mkdir(parents=True, exist_ok=True)
         return p
@@ -106,7 +106,7 @@ class MockPatientDatabase(PatientDatabase):
         path.write_text(record.model_dump_json(indent=2))
 
     def list_patient_ids(self) -> list[str]:
-        return [p.name for p in DATA_DIR.iterdir() if p.is_dir()]
+        return [p.name for p in DATA_DIR.iterdir() if p.is_dir() and PATIENT_ID.fullmatch(p.name)]
 
     # Doctor questions
     def get_doctor_questions(self, patient_id: str, for_date: str) -> list[str]:
@@ -174,63 +174,65 @@ class GCSPatientDatabase(PatientDatabase):
         self._client = storage.Client()
         self._bucket = self._client.bucket(bucket_name)
 
-    def _blob(self, path: str):
-        return self._bucket.blob(f"patients/{path}")
+    @staticmethod
+    def _key(patient_id: str, name: str) -> str:
+        return f"patients/{validate_patient_id(patient_id)}/{name}"
 
-    def _read(self, path: str) -> dict | None:
-        blob = self._blob(path)
+    def _read(self, patient_id: str, name: str) -> dict | None:
+        blob = self._bucket.blob(self._key(patient_id, name))
         if not blob.exists():
             return None
         return json.loads(blob.download_as_text())
 
-    def _write(self, path: str, data: dict) -> None:
-        self._blob(path).upload_from_string(
+    def _write(self, patient_id: str, name: str, data: dict) -> None:
+        self._bucket.blob(self._key(patient_id, name)).upload_from_string(
             json.dumps(data, indent=2), content_type="application/json"
         )
 
-    def _list_blobs(self, prefix: str) -> list[str]:
-        return [
-            b.name for b in self._client.list_blobs(
-                self._bucket, prefix=f"patients/{prefix}"
-            )
-        ]
+    def _list_blobs(self, patient_id: str, prefix: str) -> list[str]:
+        return [b.name for b in self._client.list_blobs(self._bucket, prefix=self._key(patient_id, prefix))]
 
     # Patient records
     def get_patient(self, patient_id: str) -> PatientRecord:
-        data = self._read(f"{patient_id}/record.json")
+        data = self._read(patient_id, "record.json")
         if data is None:
             raise FileNotFoundError(f"No patient record found for ID '{patient_id}'")
         return PatientRecord.model_validate(data)
 
     def save_patient(self, record: PatientRecord) -> None:
-        self._write(f"{record.patient_id}/record.json", record.model_dump())
+        self._write(record.patient_id, "record.json", record.model_dump())
+
+    def delete_patient(self, patient_id: str) -> None:
+        """Remove every object stored under one patient: record, questions, check-ins, summaries."""
+        for blob in self._client.list_blobs(self._bucket, prefix=self._key(patient_id, "")):
+            blob.delete()
 
     def list_patient_ids(self) -> list[str]:
         seen, ids = set(), []
-        for name in self._list_blobs(""):
-            parts = name.split("/")
+        for blob in self._client.list_blobs(self._bucket, prefix="patients/"):
+            parts = blob.name.split("/")
             if len(parts) >= 3:
                 pid = parts[1]
-                if pid not in seen:
+                if pid not in seen and PATIENT_ID.fullmatch(pid):
                     seen.add(pid); ids.append(pid)
         return ids
 
     # Doctor questions
     def get_doctor_questions(self, patient_id: str, for_date: str) -> list[str]:
-        data = self._read(f"{patient_id}/doctor_questions/{for_date}.json")
+        data = self._read(patient_id, f"doctor_questions/{for_date}.json")
         if data is None:
             return []
         return DoctorQuestions.model_validate(data).questions
 
     def save_doctor_questions(self, dq: DoctorQuestions) -> None:
-        self._write(f"{dq.patient_id}/doctor_questions/{dq.date}.json", dq.model_dump())
+        self._write(dq.patient_id, f"doctor_questions/{dq.date}.json", dq.model_dump())
 
     # Check-ins
     def save_checkin(self, checkin: DailyCheckIn) -> None:
-        self._write(f"{checkin.patient_id}/checkins/{checkin.id}.json", checkin.model_dump())
+        self._write(checkin.patient_id, f"checkins/{checkin.id}.json", checkin.model_dump())
 
     def get_checkin(self, patient_id: str, checkin_id: str) -> DailyCheckIn | None:
-        data = self._read(f"{patient_id}/checkins/{checkin_id}.json")
+        data = self._read(patient_id, f"checkins/{checkin_id}.json")
         return _load_checkin(checkin_id, data) if data else None
 
     def _load_checkin_blobs(self, names: list[str]) -> list[DailyCheckIn]:
@@ -240,15 +242,15 @@ class GCSPatientDatabase(PatientDatabase):
         ]
 
     def get_checkins_for_date(self, patient_id: str, for_date: str) -> list[DailyCheckIn]:
-        return self._load_checkin_blobs(sorted(self._list_blobs(f"{patient_id}/checkins/{for_date}")))
+        return self._load_checkin_blobs(sorted(self._list_blobs(patient_id, f"checkins/{for_date}")))
 
     def get_recent_checkins(self, patient_id: str, n: int = 3) -> list[DailyCheckIn]:
-        return self._load_checkin_blobs(sorted(self._list_blobs(f"{patient_id}/checkins/"), reverse=True)[:n])
+        return self._load_checkin_blobs(sorted(self._list_blobs(patient_id, "checkins/"), reverse=True)[:n])
 
     # Summaries
     def save_summary(self, summary: ClinicalSummary) -> None:
-        self._write(f"{summary.patient_id}/summaries/{summary.checkin_id}.json", summary.model_dump())
+        self._write(summary.patient_id, f"summaries/{summary.checkin_id}.json", summary.model_dump())
 
     def get_summary(self, patient_id: str, checkin_id: str) -> ClinicalSummary | None:
-        data = self._read(f"{patient_id}/summaries/{checkin_id}.json")
+        data = self._read(patient_id, f"summaries/{checkin_id}.json")
         return ClinicalSummary.model_validate(data) if data else None

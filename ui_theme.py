@@ -35,6 +35,8 @@ _CSS = """
 header[data-testid="stHeader"] { background: transparent; }
 
 .block-container { max-width: 1080px; padding-top: 2.2rem; padding-bottom: 4rem; }
+/* The clinician page sets layout="wide"; this lifts the cap above, which would otherwise still win */
+.block-container:has(.st-key-clinician_page) { max-width: initial; }
 html, body, [class*="css"], .stApp { font-family: var(--nh-sans); }
 h1, h2, h3, .nh-hero h1 { color: var(--nh-ink); font-family: var(--nh-serif) !important; font-weight: 700; letter-spacing: -0.01em; }
 .stApp { background: var(--nh-bg); }
@@ -76,13 +78,21 @@ h1, h2, h3, .nh-hero h1 { color: var(--nh-ink); font-family: var(--nh-serif) !im
 .nh-chip.red   { color: var(--nh-red);   background: var(--nh-red-bg); }
 .nh-chip.gray  { color: var(--nh-gray);  background: var(--nh-gray-bg); }
 
-/* Patient roster table */
-.nh-table-wrap { overflow-x: auto; border: 1px solid var(--nh-line); border-radius: 12px; }
-.nh-table { width: 100%; border-collapse: collapse; background: var(--nh-surface); }
-.nh-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
-               color: var(--nh-muted); background: var(--nh-bg); padding: 0.65rem 1rem; white-space: nowrap; }
-.nh-table td { padding: 0.8rem 1rem; border-top: 1px solid var(--nh-line); color: var(--nh-ink); font-size: 0.9rem; }
-.nh-table td .nh-sub { color: var(--nh-muted); font-size: 0.78rem; }
+/* Patient roster: one keyed container per row, info grid plus an Open button */
+.st-key-roster { background: var(--nh-surface); border: 1px solid var(--nh-line); border-radius: 12px;
+                 overflow: hidden; gap: 0; }
+.st-key-roster > div { padding: 0.55rem 1rem; }
+[class*="st-key-roster_row_"] { border-top: 1px solid var(--nh-line); }
+.nh-roster-row { display: grid; grid-template-columns: 1.3fr 1.6fr 1fr 1fr; gap: 1rem; align-items: center;
+                 color: var(--nh-ink); font-size: 0.9rem; }
+.nh-roster-row .nh-sub { color: var(--nh-muted); font-size: 0.78rem; }
+.nh-roster-head { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
+                  color: var(--nh-muted); }
+
+/* Landing role cards */
+[class*="st-key-role_"] { background: var(--nh-surface); border-radius: 12px; padding: 0.6rem 0.4rem; }
+[class*="st-key-role_"] [data-testid="stPageLink"] a { background: var(--nh-primary); border-radius: 999px; }
+[class*="st-key-role_"] [data-testid="stPageLink"] a * { color: #fff !important; font-weight: 600; }
 
 /* Detail header */
 .nh-detail { display: grid; grid-template-columns: 1.2fr 1.6fr 1fr; gap: 1rem; }
@@ -113,14 +123,9 @@ h1, h2, h3, .nh-hero h1 { color: var(--nh-ink); font-family: var(--nh-serif) !im
 .stButton > button[kind="secondary"] { background: transparent; color: var(--nh-ink); }
 .stButton > button[kind="secondary"]:hover { background: var(--nh-sky); color: var(--nh-ink); }
 
-/* Make the "reopen sidebar" button easy to spot */
-[data-testid="stExpandSidebarButton"] {
-  background: var(--nh-primary) !important; border-radius: 10px; width: 2.4rem; height: 2.4rem;
-}
-[data-testid="stExpandSidebarButton"] span { color: #fff !important; }
-
-/* Sidebar */
-[data-testid="stSidebar"] { background: var(--nh-surface); border-right: 1px solid var(--nh-line); }
+/* No page uses the sidebar, so never offer a control to open an empty one */
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
+[data-testid="stExpandSidebarButton"] { display: none !important; }
 
 /* Progress bar track */
 [data-testid="stProgress"] [role="progressbar"] { background: var(--nh-line); }
@@ -131,7 +136,8 @@ button[data-baseweb="tab"] { font-weight: 600; }
 /* Narrow screens */
 @media (max-width: 720px) {
   .block-container { padding-left: 1rem; padding-right: 1rem; padding-top: 3.5rem; }
-  .nh-kpis, .nh-detail { grid-template-columns: 1fr; }
+  .nh-kpis, .nh-detail, .nh-roster-row { grid-template-columns: 1fr; gap: 0.3rem; }
+  .nh-roster-head { display: none; }
   .nh-hero h1 { font-size: 1.4rem; }
   .nh-kpi-value { font-size: 1.6rem; }
 }
@@ -198,17 +204,18 @@ def detail_cards(items: list[tuple[str, str]]) -> None:
     st.markdown(f'<div class="nh-detail">{cells}</div>', unsafe_allow_html=True)
 
 
-def roster_table(rows: list[dict]) -> None:
-    """rows: name, diagnosis, status_html, action_html."""
-    body = "".join(
-        f'<tr><td><b>{escape(r["name"])}</b><div class="nh-sub">{escape(r["id"])}</div></td>'
-        f'<td>{escape(r["diagnosis"])}</td><td>{r["status_html"]}</td><td>{r["action_html"]}</td></tr>'
-        for r in rows
+def roster_header() -> str:
+    return (
+        '<div class="nh-roster-row nh-roster-head"><div>Patient</div><div>Primary diagnosis</div>'
+        "<div>Today's check-in</div><div>Recommended action</div></div>"
     )
-    st.markdown(
-        '<div class="nh-table-wrap"><table class="nh-table"><thead><tr><th>Patient</th><th>Primary diagnosis</th>'
-        f'<th>Today\'s check-in</th><th>Recommended action</th></tr></thead><tbody>{body}</tbody></table></div>',
-        unsafe_allow_html=True,
+
+
+def roster_row(row: dict) -> str:
+    """row: id, name, diagnosis, status_html, action_html."""
+    return (
+        f'<div class="nh-roster-row"><div><b>{escape(row["name"])}</b><div class="nh-sub">{escape(row["id"])}</div></div>'
+        f'<div>{escape(row["diagnosis"])}</div><div>{row["status_html"]}</div><div>{row["action_html"]}</div></div>'
     )
 
 
