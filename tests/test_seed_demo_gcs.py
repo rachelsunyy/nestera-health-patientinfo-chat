@@ -92,3 +92,15 @@ def test_cli_refuses_a_folder_and_a_bucket_together(tmp_path, capsys):
     with pytest.raises(SystemExit):
         seed_demo.main(["--data-dir", str(tmp_path), "--gcs-bucket", "demo-bucket"])
     assert "not allowed with argument" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad_id", ["", "..", "../demo_x", "demo_a/", "demo_a/..", "demo_\n"])
+def test_delete_patient_refuses_ids_that_are_not_one_path_segment(gcs_db, fake_bucket, bad_id):
+    fake_bucket.blobs["patients/demo_a/record.json"] = "{}"
+    fake_bucket.blobs["patients/patient_001/record.json"] = "{}"
+    before = dict(fake_bucket.blobs)
+
+    with pytest.raises(ValueError):
+        gcs_db.delete_patient(bad_id)
+
+    assert fake_bucket.blobs == before

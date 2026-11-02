@@ -204,7 +204,7 @@ class GCSPatientDatabase(PatientDatabase):
 
     def delete_patient(self, patient_id: str) -> None:
         """Remove every object stored under one patient: record, questions, check-ins, summaries."""
-        for blob in self._client.list_blobs(self._bucket, prefix=f"patients/{patient_id}/"):
+        for blob in self._client.list_blobs(self._bucket, prefix=self._key(patient_id, "")):
             blob.delete()
 
     def list_patient_ids(self) -> list[str]:
