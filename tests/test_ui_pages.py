@@ -1,6 +1,8 @@
 """Each URL shows one role: / offers both, /patient only the check-in, /clinician only the dashboard."""
 
 from agents.patient_agent import PatientAgent
+from agents.summary_agent import SummaryAgent
+from database.patient_db import MockPatientDatabase
 from scripts import seed_demo
 from tests.test_seed_demo import kpis, roster_cells
 
@@ -150,3 +152,64 @@ def test_keeping_the_existing_record_changes_nothing(db, open_page):
     assert at.info[0].value == "Nothing was changed."
     assert db.get_patient("patient_002").name == "Robert Johnson"
     assert not at.warning
+
+
+SECRET = "bucket gs://internal-7f3a refused: token expired"
+
+
+def boom(*args, **kwargs):
+    raise RuntimeError(SECRET)
+
+
+def assert_logged(caplog, logger: str) -> None:
+    assert any(r.name == logger and r.exc_info and SECRET in str(r.exc_info[1]) for r in caplog.records)
+
+
+def test_patient_sees_a_calm_message_with_their_care_team_when_the_check_in_cannot_start(db, open_page, monkeypatch, caplog):
+    monkeypatch.setattr(PatientAgent, "__init__", boom)
+    at = open_page("patient", patient="patient_001")
+    contact = db.get_patient("patient_001").care_team_contact
+    assert at.error[0].value == (
+        "We couldn't start your check-in just now. Please try again in a few minutes. "
+        f"If you need to talk to someone, please call your care team at {contact}. In an emergency, call 911."
+    )
+    assert SECRET not in screen_text(at)
+    assert at.selectbox[0].label == "Your name"
+    assert_logged(caplog, "views.patient")
+
+
+def test_patient_message_still_points_to_the_care_team_when_the_record_cannot_load(db, open_page, monkeypatch):
+    monkeypatch.setattr(MockPatientDatabase, "get_patient", boom)
+    at = open_page("patient", patient="patient_001")
+    assert "please call your care team. In an emergency, call 911." in at.error[0].value
+    assert SECRET not in screen_text(at)
+
+
+def test_a_failed_new_check_in_explains_itself(db, open_page, monkeypatch):
+    at = open_page("patient", patient="patient_001")
+    while at.chat_input:
+        at.chat_input[0].set_value("Fine").run()
+    monkeypatch.setattr(PatientAgent, "__init__", boom)
+    next(b for b in at.button if b.label == "Start a new check-in").click().run()
+    assert at.error[0].value.startswith("We couldn't start your check-in just now.")
+    assert SECRET not in screen_text(at)
+
+
+def test_clinician_sees_a_plain_message_when_the_note_cannot_be_generated(db, open_page, monkeypatch, caplog):
+    finish_check_in(db, "patient_001")
+    monkeypatch.setattr(SummaryAgent, "generate", boom)
+    at = open_page("clinician", patient="patient_001")
+    assert at.error[0].value.startswith("The clinical note could not be generated right now.")
+    assert SECRET not in screen_text(at)
+    assert_logged(caplog, "views.clinician")
+
+
+def test_a_failed_save_shows_a_plain_message(db, open_page, monkeypatch, caplog):
+    at = open_page("clinician")
+    at.session_state["register_pending"] = db.get_patient("patient_001")
+    at.run()
+    monkeypatch.setattr(MockPatientDatabase, "save_patient", boom)
+    next(b for b in at.button if b.label == "Replace the existing record").click().run()
+    assert at.error[0].value == "The patient record could not be saved. Please try again in a moment."
+    assert SECRET not in screen_text(at)
+    assert_logged(caplog, "views.clinician")

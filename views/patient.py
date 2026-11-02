@@ -1,5 +1,6 @@
 """Patient page: pick your name, then the daily check-in chat."""
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -11,6 +12,8 @@ from agents.conversation_agent import ConversationalPatientAgent
 from agents.patient_agent import PatientAgent
 from agents.summary_agent import SummaryAgent
 from views.shared import get_db, patient_names
+
+log = logging.getLogger("views.patient")
 
 
 @dataclass
@@ -27,12 +30,24 @@ def start_checkin(patient_id: str) -> CheckinSession:
     return CheckinSession(agent, [{"role": "assistant", "content": opening}])
 
 
+def care_team_hint(patient_id: str) -> str:
+    try:
+        contact = db.get_patient(patient_id).care_team_contact
+    except Exception:
+        return "If you need to talk to someone, please call your care team."
+    return f"If you need to talk to someone, please call your care team at {contact}."
+
+
 def begin(patient_id: str) -> None:
     try:
         st.session_state.checkin = start_checkin(patient_id)
-    except Exception as e:
+    except Exception:
+        log.exception("Could not start a check-in for %s", patient_id)
         st.session_state.checkin = None
-        st.error(f"Could not load your information: {e}")
+        st.error(
+            "We couldn't start your check-in just now. Please try again in a few minutes. "
+            f"{care_team_hint(patient_id)} In an emergency, call 911."
+        )
 
 
 def start_over() -> None:
@@ -96,7 +111,8 @@ if session.done:
         )
     if st.button("Start a new check-in", type="secondary"):
         begin(agent.patient_id)
-        st.rerun()
+        if st.session_state.checkin:
+            st.rerun()
 
 st.button("Not you? Start over", type="tertiary", on_click=start_over)
 
@@ -118,6 +134,7 @@ if not session.done:
             try:
                 SummaryAgent(agent.patient_id, db).generate()
             except Exception:
-                pass  # the clinician page generates a missing note on demand
+                # The clinician page generates a missing note on demand
+                log.exception("Could not generate the summary for %s", agent.patient_id)
 
         st.rerun()

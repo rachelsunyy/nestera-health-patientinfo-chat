@@ -1,5 +1,6 @@
 """Clinician page: today's roster, then one patient's summary, trends and questions."""
 
+import logging
 import re
 from datetime import date, datetime
 
@@ -12,6 +13,8 @@ from agents.trends import IMPROVING, VITAL_LABELS, WINDOW, WORSENING, assess_tre
 from data.models import DoctorQuestions, PatientRecord
 from views.registration import ExistingPatient, InvalidUpload, NewPatient, read_upload
 from views.shared import SAMPLE_DIR, get_db, patient_names
+
+log = logging.getLogger("views.clinician")
 
 # None is a patient with no check-in today; they rank between attention and routine.
 TRIAGE_RANK = {"Escalate": 0, "Schedule visit": 1, None: 2, "Routine review": 3}
@@ -83,7 +86,12 @@ def uploader_key() -> str:
 
 
 def save_record(record: PatientRecord, verb: str) -> None:
-    db.save_patient(record)
+    try:
+        db.save_patient(record)
+    except Exception:
+        log.exception("Could not save the record for %s", record.patient_id)
+        st.session_state.register_notice = ("error", "The patient record could not be saved. Please try again in a moment.")
+        return
     st.session_state.register_notice = ("success", f"✅ {verb} {record.name} ({record.patient_id})")
 
 
@@ -200,8 +208,12 @@ def show_patient(selected_id: str) -> None:
                 st.info("Check-in completed. Generating clinical note…")
                 try:
                     show_summary(SummaryAgent(selected_id, db).generate(latest.id))
-                except Exception as e:
-                    st.error(f"Could not generate summary: {e}")
+                except Exception:
+                    log.exception("Could not generate the summary for %s check-in %s", selected_id, latest.id)
+                    st.error(
+                        "The clinical note could not be generated right now. The patient's answers are saved "
+                        "and shown under View recent check-in responses. Click Refresh to try again."
+                    )
         else:
             st.info(
                 f"**{record.name}** has not completed today's check-in yet ({today}). "
