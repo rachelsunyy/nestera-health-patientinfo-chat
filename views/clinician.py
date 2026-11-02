@@ -278,7 +278,7 @@ def show_patient(selected_id: str) -> None:
 
 db = get_db()
 names = patient_names(db)
-st.set_page_config(page_title="Clinician Dashboard · Nestera Health")
+st.set_page_config(page_title="Clinician Dashboard · Nestera Health", layout="wide")
 ui_theme.brand_header()
 
 if "clinician_patient_id" not in st.session_state:
@@ -288,7 +288,8 @@ if "clinician_patient_id" not in st.session_state:
         st.info(f"No patient with id {linked}. Showing today's roster.")
 
 selected = st.session_state.clinician_patient_id
-if selected in names:
-    show_patient(selected)
-else:
-    show_roster(names)
+with st.container(key="clinician_page"):
+    if selected in names:
+        show_patient(selected)
+    else:
+        show_roster(names)

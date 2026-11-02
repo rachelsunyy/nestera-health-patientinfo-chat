@@ -35,6 +35,8 @@ _CSS = """
 header[data-testid="stHeader"] { background: transparent; }
 
 .block-container { max-width: 1080px; padding-top: 2.2rem; padding-bottom: 4rem; }
+/* The clinician page sets layout="wide"; this lifts the cap above, which would otherwise still win */
+.block-container:has(.st-key-clinician_page) { max-width: initial; }
 html, body, [class*="css"], .stApp { font-family: var(--nh-sans); }
 h1, h2, h3, .nh-hero h1 { color: var(--nh-ink); font-family: var(--nh-serif) !important; font-weight: 700; letter-spacing: -0.01em; }
 .stApp { background: var(--nh-bg); }
