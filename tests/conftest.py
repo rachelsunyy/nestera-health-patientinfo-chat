@@ -73,6 +73,9 @@ class FakeBucket:
             def upload_from_string(self, text, content_type=None):
                 bucket.blobs[name] = text
 
+            def delete(self):
+                del bucket.blobs[name]
+
         return Blob()
 
     def list_blobs(self, _bucket, prefix):
