@@ -91,7 +91,7 @@ pytest
 
 ## Patient Record Format
 
-Register a new patient by uploading a JSON file under **Register a new patient**, below the roster on `/clinician`.
+Register a new patient by uploading a JSON file under **Register a new patient**, below the roster on `/clinician`. A file whose `patient_id` is already registered replaces that record only after you click **Replace the existing record**. Check-ins and notes are kept. A file that does not match the format below is rejected with one line per problem, such as `Missing required field: date_of_birth`.
 
 ```json
 {

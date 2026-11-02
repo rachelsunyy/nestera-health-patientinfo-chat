@@ -1,6 +1,5 @@
 """Clinician page: today's roster, then one patient's summary, trends and questions."""
 
-import json
 import re
 from datetime import date, datetime
 
@@ -11,6 +10,7 @@ import ui_theme
 from agents.summary_agent import SummaryAgent
 from agents.trends import IMPROVING, VITAL_LABELS, WINDOW, WORSENING, assess_trend
 from data.models import DoctorQuestions, PatientRecord
+from views.registration import ExistingPatient, InvalidUpload, NewPatient, read_upload
 from views.shared import SAMPLE_DIR, get_db, patient_names
 
 # None is a patient with no check-in today; they rank between attention and routine.
@@ -78,17 +78,56 @@ def roster_row(pid: str, name: str, today: str) -> dict:
     }
 
 
-def register_patient() -> None:
-    uploaded = st.file_uploader("Upload patient record JSON", type="json")
-    if uploaded:
-        try:
-            new_record = PatientRecord.model_validate(json.loads(uploaded.read()))
-            db.save_patient(new_record)
-            st.success(f"✅ Registered: {new_record.name} ({new_record.patient_id})")
-            st.cache_resource.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"Invalid file: {e}")
+def uploader_key() -> str:
+    return f"register_upload_{st.session_state.get('register_uploads', 0)}"
+
+
+def save_record(record: PatientRecord, verb: str) -> None:
+    db.save_patient(record)
+    st.session_state.register_notice = ("success", f"✅ {verb} {record.name} ({record.patient_id})")
+
+
+def on_upload() -> None:
+    uploaded = st.session_state[uploader_key()]
+    if uploaded is None:
+        return
+    # A fresh key empties the uploader, so this file is handled exactly once
+    st.session_state.register_uploads = st.session_state.get("register_uploads", 0) + 1
+    st.session_state.register_pending = None
+    match read_upload(uploaded.getvalue(), db.list_patient_ids()):
+        case InvalidUpload(problems):
+            lines = "\n".join(f"- {p}" for p in problems)
+            st.session_state.register_notice = ("error", f"This file could not be registered:\n\n{lines}")
+        case ExistingPatient(record):
+            st.session_state.register_pending = record
+        case NewPatient(record):
+            save_record(record, "Registered:")
+
+
+def replace_existing() -> None:
+    save_record(st.session_state.register_pending, "Replaced the record for")
+    st.session_state.register_pending = None
+
+
+def keep_existing() -> None:
+    st.session_state.register_pending = None
+    st.session_state.register_notice = ("info", "Nothing was changed.")
+
+
+def register_patient(names: dict[str, str]) -> None:
+    st.file_uploader("Upload patient record JSON", type="json", key=uploader_key(), on_change=on_upload)
+    if notice := st.session_state.pop("register_notice", None):
+        kind, text = notice
+        getattr(st, kind)(text)
+    if pending := st.session_state.get("register_pending"):
+        st.warning(
+            f"A patient with id **{pending.patient_id}** is already registered as "
+            f"**{names.get(pending.patient_id, pending.patient_id)}**. Replacing overwrites their record "
+            "with the uploaded file. Their check-ins and notes are kept."
+        )
+        with st.container(horizontal=True):
+            st.button("Replace the existing record", type="primary", on_click=replace_existing)
+            st.button("Keep the existing record", on_click=keep_existing)
 
     sample_path = SAMPLE_DIR / "patient_001.json"
     if sample_path.exists():
@@ -129,7 +168,7 @@ def show_roster(names: dict[str, str]) -> None:
     roster_list()
     st.write("")
     with st.expander("➕ Register a new patient", expanded=not names):
-        register_patient()
+        register_patient(names)
 
 
 def show_patient(selected_id: str) -> None:

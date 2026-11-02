@@ -125,3 +125,28 @@ def test_patient_refresh_reloads_check_ins_and_summary(db, open_page):
     assert not at.exception
     assert any(m.value.startswith("**Recommended action**") for m in at.markdown)
     assert len(at.table) == 1
+
+
+def test_uploading_an_existing_id_replaces_it_only_after_confirming(db, open_page):
+    # AppTest cannot upload files, so the test starts where the upload handler leaves a duplicate
+    at = open_page("clinician")
+    at.session_state["register_pending"] = db.get_patient("patient_001").model_copy(update={"name": "Maggie Chen"})
+    at.run()
+    assert "already registered as **Margaret Chen**" in at.warning[0].value
+    assert db.get_patient("patient_001").name == "Margaret Chen"
+
+    next(b for b in at.button if b.label == "Replace the existing record").click().run()
+    assert at.success[0].value.endswith("Replaced the record for Maggie Chen (patient_001)")
+    assert db.get_patient("patient_001").name == "Maggie Chen"
+    assert not at.warning
+    assert roster_cells(at, "patient_001")[0] == "Maggie Chen"
+
+
+def test_keeping_the_existing_record_changes_nothing(db, open_page):
+    at = open_page("clinician")
+    at.session_state["register_pending"] = db.get_patient("patient_002").model_copy(update={"name": "Bob Johnson"})
+    at.run()
+    next(b for b in at.button if b.label == "Keep the existing record").click().run()
+    assert at.info[0].value == "Nothing was changed."
+    assert db.get_patient("patient_002").name == "Robert Johnson"
+    assert not at.warning
