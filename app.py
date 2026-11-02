@@ -12,8 +12,8 @@ Endpoints:
   POST /session/respond/{session_id}           — patient sends a message
   GET  /session/{session_id}/status            — see session progress
 
-  POST /summary/{patient_id}                   — generate today's clinical summary
-  GET  /summary/{patient_id}                   — retrieve today's summary
+  POST /summary/{patient_id}                   — generate the summary of today's latest check-in
+  GET  /summary/{patient_id}                   — retrieve it (or ?checkin_id= for a specific check-in)
   GET  /trend/{patient_id}                     — trajectory across recent check-ins
 
 Run locally:
@@ -175,11 +175,16 @@ def generate_summary(patient_id: str):
     return summary
 
 @app.get("/summary/{patient_id}")
-def get_summary(patient_id: str, checkin_date: str | None = None):
-    d = checkin_date or date.today().isoformat()
-    summary = db.get_summary(patient_id, d)
+def get_summary(patient_id: str, checkin_id: str | None = None):
+    if checkin_id is None:
+        today = date.today().isoformat()
+        todays = db.get_checkins_for_date(patient_id, today)
+        if not todays:
+            raise HTTPException(404, f"No check-in for {patient_id} on {today}")
+        checkin_id = todays[-1].id
+    summary = db.get_summary(patient_id, checkin_id)
     if summary is None:
-        raise HTTPException(404, f"No summary for {patient_id} on {d}")
+        raise HTTPException(404, f"No summary for {patient_id} check-in {checkin_id}")
     return summary
 
 
@@ -196,7 +201,7 @@ def get_trend(patient_id: str):
         "status": report.status,
         "reasons": report.reasons,
         "points": [
-            {"date": p.date, "action": p.action, "vitals": p.vitals, "worse": p.worse, "better": p.better}
+            {"date": p.date, "label": p.label, "action": p.action, "vitals": p.vitals, "worse": p.worse, "better": p.better}
             for p in report.points
         ],
     }
